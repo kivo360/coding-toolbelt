@@ -43,6 +43,30 @@ These skills cover the full SaaS development lifecycle:
 - **UI**: shadcn/ui + Tailwind CSS
 - **Infrastructure**: Turborepo monorepo, Vercel deployment
 
+## Docs & Prompts
+
+Beyond skills, this repo contains session context and reusable test prompts:
+
+```
+docs/
+├── session-progress.md          — Full build history and decisions
+├── skill-ecosystem-map.md       — Visual hierarchy of all 29 skills
+└── omoios-forge-analysis.md     — Project analysis (custom next-forge fork)
+
+prompts/
+├── omoios-forge/                — 7 test prompts for omoios-forge
+│   ├── 01-migration-audit.md
+│   ├── 02-auth-api-tests.md
+│   ├── 03-auth-ui-e2e.md
+│   ├── 04-visual-qa.md
+│   ├── 05-import-rules.md
+│   ├── 06-schema-validation.md
+│   └── 07-full-user-journey.md
+└── general/
+    ├── session-sync-broadcast.md — Paste into other sessions to share context
+    └── session-sync-discovery.md — Paste into other sessions to extract their work
+```
+
 ## License
 
 MIT

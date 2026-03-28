@@ -262,6 +262,27 @@ Load the right skills via `my-stack` routing. Follow existing codebase patterns 
 | QA found issues in adjacent features | → Back to Stage 1 (EXPLORE) |
 | All evals pass, user confirms | → **DONE** — merge/ship |
 
+### Automatic Escalation via Hooks
+
+If you have the `linter-loop-escalation` skill installed, agent infrastructure automatically handles iteration failures during Stage 4 (IMPLEMENT):
+
+| Consecutive Identical Errors | Hook Action |
+|------------------------------|-------------|
+| 2 | Soft nudge — "try fundamentally different approach" |
+| 3 | Firm redirect — explicit `task({ category: 'unspecified-high' })` escalation |
+| 4 | **HARD STOP** — Edit tool BLOCKED until model switch (`ultrawork` or `task({ category: 'ultrabrain' })`) |
+| 5+ | **NUCLEAR** — Must consult `@oracle` before proceeding |
+| Ping-pong detected | Alternating errors caught — "you're oscillating, not progressing" |
+
+**How this connects to the workflow:**
+- Agent gets stuck at Stage 4 (IMPLEMENT) → hook detects the loop
+- Hook forces escalation to a more capable model
+- Escalated model may realize the spec was wrong → back to Stage 2
+- Or may find an edge case → back to Stage 3 to add a test
+- Cross-session learning stores what fixed each error for future sessions
+
+**Setup:** See `linter-loop-escalation` skill for installation and configuration.
+
 ## Activity-Based Reference Guide
 
 | Activity | Reference |
@@ -282,4 +303,8 @@ Load the right skills via `my-stack` routing. Follow existing codebase patterns 
 | `agent-browser` | Stage 3, 5 | Browser automation for evals |
 | `better-auth-test-utils` | Stage 3 | Auth state for tests |
 | `playwright-best-practices` | Stage 3, 4 | Test quality |
+| `linter-loop-escalation` | Stage 4, 6 | Auto-escalation when agent is stuck in error loops |
+| `eval-harness` | Stage 3 | Daily eval workflow (/eval define/check/report) |
+| `agent-evaluation` | Stage 5, 6 | A/B model testing, production monitoring |
+| `oh-my-openagent` | Stage 4 | OMO agent/category configuration |
 | `better-auth-complete` | Stage 4 | Auth implementation guidance |

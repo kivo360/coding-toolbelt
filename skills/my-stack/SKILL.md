@@ -27,6 +27,8 @@ Master router for your full SaaS stack. One skill to find the right skills.
 | **Error Tracking** | Sentry | `sentry-fix-issues` |
 | **Analytics** | PostHog | `posthog-instrumentation` |
 | **Testing** | Playwright + agent-browser | `dogfood-complete`, `playwright-best-practices`, `agent-browser` |
+| **Evals** | EDD + eval harness + agent evaluation | `eval-driven-dev`, `eval-harness`, `agent-evaluation` |
+| **Agent Infra** | OMO + hooks + cost tracking | `oh-my-openagent`, `linter-loop-escalation`, `ai-subscription-tracker` |
 | **Deployment** | Vercel | (no dedicated skill yet) |
 
 ## What Are You Doing?
@@ -67,11 +69,24 @@ What do you need?
 │  ├─ Package structure → next-forge
 │  └─ Database migrations → drizzle-orm
 │
-└─ Debugging?
-   ├─ Auth issues → better-auth-complete → troubleshooting.md
-   ├─ Sentry errors → sentry-fix-issues
-   ├─ Browser testing → agent-browser, dogfood-complete
-   └─ Build/monorepo issues → turborepo
+├─ Debugging?
+│  ├─ Auth issues → better-auth-complete → troubleshooting.md
+│  ├─ Sentry errors → sentry-fix-issues
+│  ├─ Browser testing → agent-browser, dogfood-complete
+│  └─ Build/monorepo issues → turborepo
+│
+├─ Running evals?
+│  ├─ Define evals before coding → eval-driven-dev (Stage 3: EVAL)
+│  ├─ Daily eval workflow (/eval define/check/report) → eval-harness
+│  ├─ Compare models (A/B testing) → agent-evaluation
+│  ├─ Production quality monitoring → agent-evaluation
+│  └─ Test hook system → linter-loop-escalation (test-hooks.mjs)
+│
+└─ Agent infrastructure?
+   ├─ OMO usage/config → oh-my-openagent
+   ├─ Cost optimization → ai-subscription-tracker
+   ├─ Linter escalation hooks → linter-loop-escalation
+   └─ Hook testing → linter-loop-escalation (test-hooks.mjs)
 ```
 
 ## Skill Chain Reference
