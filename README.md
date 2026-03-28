@@ -14,17 +14,19 @@ npx skills add kivo360/skills --skill better-auth-test-utils
 npx skills add kivo360/skills --skill better-auth-ui
 npx skills add kivo360/skills --skill dogfood-complete
 npx skills add kivo360/skills --skill my-stack
+npx skills add kivo360/skills --skill saas-bootstrap
 ```
 
 ## Skills
 
 | Skill | Description |
 |-------|-------------|
+| **[saas-bootstrap](skills/saas-bootstrap)** | Bootstrap a full SaaS stack — detect project, install all skills, scaffold configs, automate credential setup |
+| **[my-stack](skills/my-stack)** | Master router for full SaaS stack — Next.js, Better Auth, Drizzle, Stripe, Resend, Sentry, PostHog |
 | **[better-auth-complete](skills/better-auth-complete)** | Meta skill routing all Better Auth work — auth setup, OAuth, 2FA, orgs, email, testing, security |
 | **[better-auth-test-utils](skills/better-auth-test-utils)** | Better Auth test helpers — factories, getCookies for Playwright, OTP capture, Vitest integration |
 | **[better-auth-ui](skills/better-auth-ui)** | Pre-built shadcn/ui auth components — sign in, sign up, settings, orgs, API keys |
 | **[dogfood-complete](skills/dogfood-complete)** | Unified QA + Playwright test generation using agent-browser — video, annotated screenshots, reports |
-| **[my-stack](skills/my-stack)** | Master router for full SaaS stack — Next.js, Better Auth, Drizzle, Stripe, Resend, Sentry, PostHog |
 
 ## Stack Coverage
 
