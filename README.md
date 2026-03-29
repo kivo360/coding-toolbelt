@@ -16,6 +16,7 @@ npx skills add kivo360/skills --skill dogfood-complete
 npx skills add kivo360/skills --skill my-stack
 npx skills add kivo360/skills --skill saas-bootstrap
 npx skills add kivo360/skills --skill eval-driven-dev
+npx skills add kivo360/skills --skill omoios-forge
 ```
 
 ## Skills
@@ -29,6 +30,7 @@ npx skills add kivo360/skills --skill eval-driven-dev
 | **[better-auth-test-utils](skills/better-auth-test-utils)** | Better Auth test helpers — factories, getCookies for Playwright, OTP capture, Vitest integration |
 | **[better-auth-ui](skills/better-auth-ui)** | Pre-built shadcn/ui auth components — sign in, sign up, settings, orgs, API keys |
 | **[dogfood-complete](skills/dogfood-complete)** | Unified QA + Playwright test generation using agent-browser — video, annotated screenshots, reports |
+| **[omoios-forge](skills/omoios-forge)** | Agent-driven CLI + 5-phase pipeline (Scope → PRD → Spec → Evals → Build) for omoios-forge SaaS boilerplate |
 
 ## Stack Coverage
 
