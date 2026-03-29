@@ -22,43 +22,127 @@ You're in an omoios-forge project if ANY of these exist:
 - `packages/cli/` with `@repo/cli` package
 - `bun run forge --version` returns a version
 
+## MANDATORY: Startup Protocol
+
+**When this skill loads, ALWAYS execute this sequence before doing anything else:**
+
+### Step 1: Health Check
+```bash
+bun run forge doctor --json
+```
+If unhealthy, fix issues before proceeding.
+
+### Step 2: Read Steering Rules
+Read `STEERING_RULES.md`. These are the coding conventions. Internalize them — they're enforced by regression evals.
+
+### Step 3: Pipeline State
+```bash
+bun run forge status --json
+```
+This tells you what features exist and what phase they're in.
+
+### Step 4: Determine Next Action
+
+Based on the status output, pick ONE:
+
+| Status Output | What To Do |
+|---------------|------------|
+| `features: []` (empty) | Read ROADMAP.md → find the first pending cycle → start Phase 1 (Scope) |
+| Feature in `"specced"` phase | Start Phase 4 (gen evals) then Phase 5 (gen feature + build) |
+| Feature in `"building"` phase | Continue Phase 5 (tailor code, run eval loop) |
+| All features complete | Read ROADMAP.md → find the next pending cycle → start Phase 1 |
+
+### Step 5: Run the Pipeline
+
+**DO NOT skip phases. DO NOT jump to code. Execute phases in order.**
+
+**If starting a new feature** — go to Phase 1 below.
+**If resuming** — pick up at the feature's current phase.
+
+---
+
+## The 5-Phase Pipeline
+
+Every feature goes through ALL five phases in order. Each phase has a gate — you cannot proceed until the gate passes.
+
+### Phase 1: Scope
+**Load skill: `socratic-scoping`**
+
+Read the app plan docs (ROADMAP.md, any docs/*.md plans). Interview the user to narrow scope:
+- Max 3 questions per round
+- Be adversarial: "You said 5 things. Which ONE ships first?"
+- Never discuss tech stack (it's decided)
+- Produce: what we're doing AND what we're NOT doing yet
+
+**Gate:** One-sentence scope, narrow enough for one build cycle, user confirms.
+
+### Phase 2: PRD
+**Load skill: `prd-creator`**
+
+Interview the user through 5 rounds:
+1. Actors & roles (must map to owner/admin/member)
+2. Entities & fields for THIS cycle only
+3. Permission matrix (entity × role × CRUD — every cell filled)
+4. User flows (happy + failure + adversarial per actor)
+5. Cross-actor interactions (when A does X, how does it affect B?)
+
+**Gate:** Every actor has role, every entity has permission matrix, flows have failure paths, user approves.
+
+### Phase 3: Spec
+**Load skill: `openspec-writer`**
+
+Convert PRD into machine-readable spec at `specs/{feature}.spec.md`. Include:
+- Typed entities (camelCase columns, organizationId/createdBy/createdAt required)
+- Commands catalog (one per Server Action)
+- Per-role flows as numbered steps
+- Constraints and out-of-scope
+
+**Gate:** Every entity typed, every command documented, every permission cell has eval.
+
+### Phase 4: Evals
+```bash
+bun run forge gen evals {feature} --spec specs/{feature}.spec.md
+```
+Review generated scripts. Every permission cell = one eval. Verify scripts are executable.
+
+**Gate:** Eval scripts exist and are runnable.
+
+### Phase 5: Build
+```bash
+bun run forge gen feature {feature} --spec specs/{feature}.spec.md
+```
+
+Then tailor the generated code — make it real:
+1. **Load skill: `feature-builder`** for the build loop
+2. Add Drizzle tables to `packages/database/schema.ts`
+3. Implement real queries in each action file (getSession, org scoping, Zod validation)
+4. After each change: `bun run forge eval {feature}`
+5. When feature evals pass: `bun run forge eval --regression`
+6. **Load skill: `steering-enforcer`** for final compliance check
+
+**Gate:** All feature evals pass, regression evals pass (18 pass, 2 skip), `bun run check` passes.
+
+---
+
 ## CLI Commands
 
 ```bash
 omoios-forge init <project-name>          # Scaffold new project from GitHub template
+omoios-forge env:clone <source-project>   # Copy env credentials from existing project
 omoios-forge doctor --json                # Health check (docs, evals, tools)
 omoios-forge status --json                # Pipeline status per feature
 omoios-forge eval --regression --json     # Run 20 regression evals (expect 18 pass, 2 skip)
 omoios-forge eval <feature> --json        # Run feature-specific evals
-omoios-forge gen feature <name> --spec specs/<name>.spec.md --json       # Scaffold feature from spec
+omoios-forge gen feature <name> --spec specs/<name>.spec.md --json       # Scaffold feature
 omoios-forge gen feature <name> --spec specs/<name>.spec.md --dry-run    # Preview without writing
-omoios-forge gen evals <name> --spec specs/<name>.spec.md --json         # Generate eval scripts from spec
+omoios-forge gen evals <name> --spec specs/<name>.spec.md --json         # Generate eval scripts
 ```
 
 Inside the monorepo, use `bun run forge` instead of `omoios-forge`.
 
-## The 5-Phase Pipeline
-
-Every feature goes through these phases in order:
-
-### Phase 1: Scope (skill: socratic-scoping)
-Narrow the feature to what ships in one build cycle. Produces a scoped brief for ROADMAP.md.
-
-### Phase 2: PRD (skill: prd-creator)
-Generate enriched PRD with permission matrices (entity × role × CRUD), user flows (happy/failure/adversarial), and cross-actor interactions. Roles are always: owner, admin, member.
-
-### Phase 3: Spec (skill: openspec-writer)
-Convert PRD to machine-readable spec at `specs/{feature}.spec.md`. Contains typed entities, commands catalog, per-role flows, and query patterns.
-
-### Phase 4: Evals (CLI: forge gen evals)
-Generate eval scripts from spec. Entity evals check schema.ts. Command evals check action files for auth + org scoping. Permission evals generate Vitest test stubs.
-
-### Phase 5: Build (skill: feature-builder + query-scaffolder)
-Scaffold from spec → tailor generated code → run evals → fix → repeat. Uses steering-enforcer to run regression evals after changes.
-
 ## Spec File Format
 
-Specs live in `specs/{feature}.spec.md`. The parser accepts this format:
+Specs live in `specs/{feature}.spec.md`:
 
 ```markdown
 # Feature: FeatureName
@@ -79,81 +163,45 @@ Specs live in `specs/{feature}.spec.md`. The parser accepts this format:
 - file: actions/feature-name/action-name.ts
 - input: { field: type, field: type }
 - auth: required
-- permissions: { owner: Y, admin: Y, member: Y/N }
+- permissions: { owner: Y/N, admin: Y/N, member: Y/N }
 
 ## Constraints
-- Constraint 1
-- Constraint 2
+- ...
 
 ## Out of Scope
-- Not building this yet
-- Or this
+- ...
 ```
 
-Required entity fields: `id`, `organizationId`, `createdBy`, `createdAt`.
-Column naming: camelCase (Better Auth convention).
-One action file per command: `apps/app/app/actions/{feature}/{name}.ts`.
-
-## Steering Rules
-
-Every omoios-forge project has `STEERING_RULES.md` with enforced conventions:
+## Steering Rules Summary
 
 | Rule | Summary |
 |------|---------|
-| Zero Styling | Use shadcn + Tailwind defaults only. No custom visual CSS. |
+| Zero Styling | shadcn + Tailwind defaults only. No custom visual CSS. |
 | Server Components | Data fetched in Server Components. Mutations via Server Actions. |
-| Auth Imports | Apps import from `@repo/auth/client` only. Never import better-auth directly. |
-| Schema Convention | camelCase columns. All entities have organizationId, createdBy, createdAt. |
-| Action Contract | Server Actions return `{ data }` on success, `{ error }` on failure. |
-| One Action Per File | Each Server Action in its own file under `actions/{feature}/`. |
-| Import Boundaries | No cross-app imports. Use `@repo/*` packages. |
-
-## Regression Eval Baseline
-
-20 evals in `.claude/evals/`. Expected baseline:
-- **18 PASS** — Active rules enforced
-- **2 SKIP** — E-REG-15 (Zustand not installed), E-REG-20 (TanStack Query not installed)
-- **0 FAIL** — Any failure means a steering rule was violated
-
-Run after every significant code change: `bun run forge eval --regression --json`
-
-## Feature Development Workflow
-
-```
-1. Receive app plan (from docs/app-plan-prompt.md template)
-2. Load skill: socratic-scoping → narrow scope
-3. Load skill: prd-creator → generate PRD with permission matrices
-4. Load skill: openspec-writer → produce specs/{feature}.spec.md
-5. Run: bun run forge gen evals {feature} --spec specs/{feature}.spec.md
-6. Run: bun run forge gen feature {feature} --spec specs/{feature}.spec.md
-7. Tailor generated code (add real logic, validation, queries)
-8. Run: bun run forge eval {feature} → fix until all pass
-9. Run: bun run forge eval --regression → verify no regressions
-10. Load skill: steering-enforcer → final compliance check
-```
+| Auth Imports | Apps import from `@repo/auth/client` only. |
+| Schema Convention | camelCase columns. All entities need organizationId, createdBy, createdAt. |
+| Action Contract | Return `{ data }` on success, `{ error }` on failure. |
+| One Action Per File | Each action in `actions/{feature}/`. Never barrel exports. |
 
 ## Project Structure
 
 ```
-specs/                           # OpenSpec documents (Phase 3 output)
+specs/                           # OpenSpec documents
 .claude/evals/                   # Regression + feature eval scripts
 .claude/evals/run-regression.sh  # Regression suite runner
 .agents/pipeline-config.json     # Phase → skill mapping
-.agents/skills/                  # 6 pipeline skills
 packages/cli/                    # @repo/cli — the forge CLI
 STEERING_RULES.md                # Enforced coding conventions
-PIPELINE.md                      # 5-phase pipeline documentation
+PIPELINE.md                      # Pipeline documentation
 ROADMAP.md                       # Feature tracking + parking lot
 ```
 
 ## Related Skills
 
-Load these for specific pipeline phases:
+These are loaded automatically at the right pipeline phase:
 - `socratic-scoping` — Phase 1 (Scope)
 - `prd-creator` — Phase 2 (PRD)
 - `openspec-writer` — Phase 3 (Spec)
 - `steering-enforcer` — Phase 4-5 (Eval enforcement)
 - `feature-builder` — Phase 5 (Build loop)
 - `query-scaffolder` — Phase 5 (Server Action generation)
-- `eval-driven-dev` — Overall eval-first methodology
-- `my-stack` — Full stack routing (parent skill)
