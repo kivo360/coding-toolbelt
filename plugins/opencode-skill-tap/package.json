@@ -1,0 +1,13 @@
+{
+  "name": "opencode-skill-tap",
+  "version": "0.1.0",
+  "description": "OpenCode plugin that suggests relevant skills on user prompts using the toolbelt CLI",
+  "type": "module",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "^1.3.0"
+  }
+}
