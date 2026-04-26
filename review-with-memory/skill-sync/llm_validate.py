@@ -58,6 +58,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -246,10 +247,21 @@ def cmd_filter_suggestions(args: argparse.Namespace, provider: tuple) -> None:
 # ─── Mode 2: validate-gap ──────────────────────────────────────────────
 
 GAP_SYSTEM = (
-    "You decide whether a 'topic' is a real gap in a skill catalog. Given "
-    "the topic and the closest-named skills, answer: is there an existing "
-    "skill that effectively covers this, or is a new skill genuinely "
-    "warranted?\n\n"
+    "You decide whether a 'topic' represents a real gap in a skill catalog. "
+    "You will receive: the topic, the closest existing skills, AND a sample "
+    "of memory excerpts where the topic appears in this project's bank.\n\n"
+    "Use the excerpts to ground your judgement. Three failure modes to "
+    "watch for:\n"
+    "  1. The topic appears only in META-DISCUSSION (e.g. 'we tokenize "
+    "     by hyphens' is a discussion of HOW tokenization works, not a "
+    "     domain concept that needs a skill). is_real_gap=false.\n"
+    "  2. The topic appears as a one-off mention (e.g. typo, false "
+    "     extraction, copy-pasted log line). is_real_gap=false.\n"
+    "  3. The topic IS used as a real domain concept (e.g. a recurring "
+    "     workflow, an actual feature being built, an integration the "
+    "     team keeps writing). Then is_real_gap=true.\n\n"
+    "If excerpts are empty or absent, default to is_real_gap=null and "
+    "explain in reasoning that there's insufficient evidence.\n\n"
     "OUTPUT FORMAT: Reply with raw JSON only — no markdown fences, no "
     "preamble, no commentary, no trailing prose. The first character of "
     "your response MUST be '{' and the last MUST be '}'. Keep "
@@ -257,20 +269,37 @@ GAP_SYSTEM = (
 )
 
 
-def _gap_prompt(topic: str, near_skills: list[dict]) -> str:
+def _gap_prompt(topic: str, near_skills: list[dict], excerpts: list[str]) -> str:
     lines = [f'Topic flagged as gap: "{topic}"', "", "Closest existing skills:"]
     for s in near_skills:
         name = s.get("name", "?")
         desc = s.get("description", "").strip().replace("\n", " ")[:200]
         lines.append(f"- {name}: {desc}")
+
+    if excerpts:
+        lines += ["", "Memory excerpts where this topic appears:"]
+        for i, e in enumerate(excerpts, 1):
+            text = e.strip().replace("\n", " ")
+            if len(text) > 220:
+                text = text[:220] + "…"
+            lines.append(f'  {i}. "{text}"')
+    else:
+        lines += [
+            "",
+            "(No memory excerpts found — topic was extracted as a token but "
+            "may not appear as a concept in any retained content. Treat with "
+            "skepticism.)",
+        ]
+
     lines += [
         "",
         "Reply as JSON: "
-        '{"is_real_gap": true|false, "covered_by": ["skill-name", ...], '
-        '"reasoning": "one sentence", '
+        '{"is_real_gap": true|false|null, "covered_by": ["skill-name", ...], '
+        '"reasoning": "one sentence — quote excerpts if relevant", '
         '"suggested_skill_name": "<kebab-case>" or null, '
-        '"suggested_description": "<one-line description>" or null}',
-        "Set is_real_gap=false if any existing skill substantively covers it.",
+        '"suggested_description": "<one-line description>" or null, '
+        '"evidence_class": "real-domain-concept" | "meta-discussion" | "one-off-mention" | "no-evidence"}',
+        "Set is_real_gap=false if any existing skill substantively covers it OR if the excerpts show it's meta-discussion or a one-off.",
     ]
     return "\n".join(lines)
 
@@ -299,10 +328,90 @@ def _near_skills(topic: str, index_path: Path, limit: int) -> list[dict]:
     return [s[1] for s in scored[:limit]]
 
 
+def _fetch_bank_excerpts(topic: str, bank_id: str | None, n: int = 4) -> list[str]:
+    """Pull bank memories that mention the topic. Grounding for the LLM."""
+    if not bank_id:
+        return []
+    base_url = (
+        os.environ.get("HINDSIGHT_BASE_URL")
+        or "http://localhost:8888"
+    )
+    body = json.dumps({
+        "query": topic,
+        "max_tokens": 1024,
+        "budget": "low",
+    }).encode("utf-8")
+    # Hindsight accepts `::` raw in path segments (curl test confirmed). URL-
+    # encoding it actually breaks the route — the server doesn't decode it back
+    # for the bank_id path parameter.
+    url = f"{base_url.rstrip('/')}/v1/default/banks/{bank_id}/memories/recall"
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            raw_body = resp.read().decode("utf-8")
+            payload = json.loads(raw_body)
+    except Exception as e:
+        sys.stderr.write(f"[llm_validate] excerpt recall failed (non-fatal): {e!r}\n")
+        return []
+    results = payload.get("results") or []
+    if os.environ.get("LLM_VALIDATE_DEBUG") == "1":
+        sys.stderr.write(f"[llm_validate] url={url}\n")
+        sys.stderr.write(f"[llm_validate] response keys: {list(payload.keys())}\n")
+        sys.stderr.write(f"[llm_validate] recall returned {len(results)} memories for '{topic}'\n")
+        if len(results) == 0:
+            sys.stderr.write(f"[llm_validate] raw body[:300]: {raw_body[:300]}\n")
+    excerpts: list[str] = []
+    # Match any token of the topic (split on hyphens) — bank memories rarely
+    # quote a long compound phrase verbatim, but they will mention its parts.
+    topic_l = topic.lower()
+    needles = [topic_l] + [
+        p for p in re.split(r"[-_]", topic_l) if len(p) >= 4
+    ]
+    for r in results:
+        text = (r.get("text") or r.get("content") or "").strip()
+        if not text:
+            continue
+        text_l = text.lower()
+        if any(n in text_l for n in needles):
+            excerpts.append(text)
+        if len(excerpts) >= n:
+            break
+    if os.environ.get("LLM_VALIDATE_DEBUG") == "1":
+        sys.stderr.write(f"[llm_validate] kept {len(excerpts)} excerpts after needle filter\n")
+    return excerpts
+
+
+def _resolve_bank() -> str | None:
+    """Best-effort: derive bank id from current git repo."""
+    explicit = os.environ.get("HINDSIGHT_BANK_ID")
+    if explicit:
+        return explicit
+    prefix = os.environ.get("HINDSIGHT_BANK_PREFIX", "kh")
+    try:
+        import subprocess as sp
+        root = sp.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            stderr=sp.DEVNULL,
+            timeout=2,
+        ).decode().strip()
+        if root:
+            return f"{prefix}-::{Path(root).name}"
+    except Exception:
+        pass
+    return None
+
+
 def cmd_validate_gap(args: argparse.Namespace, provider: tuple) -> None:
     api_key, base_url, model = provider
     near = _near_skills(args.topic, Path(args.skills_index).expanduser(), args.near_limit)
-    user = _gap_prompt(args.topic, near)
+    bank = getattr(args, "bank", None) or _resolve_bank()
+    excerpts = _fetch_bank_excerpts(args.topic, bank, n=4) if bank else []
+    user = _gap_prompt(args.topic, near, excerpts)
     raw = _chat_completion(
         api_key, base_url, model, GAP_SYSTEM, user,
         max_tokens=args.max_tokens,
@@ -336,6 +445,8 @@ def main() -> None:
 
     g = sub.add_parser("validate-gap", aliases=["gap"])
     g.add_argument("--topic", required=True)
+    g.add_argument("--bank", default=None,
+                    help="Hindsight bank id (default: derived from current git repo)")
     g.add_argument("--skills-index", default=str(Path.home() / ".agents/skills-index.json"))
     g.add_argument("--near-limit", type=int, default=8)
     g.add_argument("--max-tokens", type=int, default=800)

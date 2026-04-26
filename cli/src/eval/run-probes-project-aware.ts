@@ -24,6 +24,7 @@
 import { readIndex } from "../lib/index-store";
 import { findMatchesHybrid } from "../lib/hybrid-matcher";
 import { _resetProjectBoostsCacheForTest } from "../lib/context-rules";
+import { validateMatchesWithLlm } from "../lib/llm-validate";
 import { execFileSync } from "node:child_process";
 import { basename } from "node:path";
 import probesFile from "./probes-project-aware.json" with { type: "json" };
@@ -38,6 +39,7 @@ interface ProbeJson {
 const probes = (probesFile as { probes: ProbeJson[] }).probes;
 const ab = process.argv.includes("--ab");
 const wantJson = process.argv.includes("--json");
+const withValidate = process.argv.includes("--validate");
 
 function currentBank(): string {
   const prefix = process.env.HINDSIGHT_BANK_PREFIX || "kh";
@@ -87,12 +89,18 @@ async function runProbe(probe: ProbeJson, boostOn: boolean): Promise<ProbeOutcom
   const result = await findMatchesHybrid(index!, probe.prompt, {
     minScore: 8,
     minConfidence: 0.3, // slightly relaxed for project-boost-only matches
-    limit: 3,
+    limit: 9, // pull a wider candidate set so --validate has material to filter
     requireNameOrTrigger: true,
     deep: false,
   });
 
-  const top = result.matches
+  let matches = result.matches;
+  if (withValidate && matches.length > 0) {
+    const v = validateMatchesWithLlm(probe.prompt, matches, { timeoutMs: 30000 });
+    if (v.ranOk) matches = v.filtered;
+  }
+
+  const top = matches
     .slice(0, 3)
     .map((m) => ({ name: m.name, conf: m.confidence }));
   const hitName = expected.find((exp) => top.some((t) => t.name === exp)) ?? null;

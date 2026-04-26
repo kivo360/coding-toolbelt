@@ -3,6 +3,7 @@ import { findMatchesHybrid } from "../../lib/hybrid-matcher";
 import { pingDaemon, daemonMatch } from "../../lib/daemon-client";
 import { appendMemory, makeRecord, recall, recentlySuggested } from "../../lib/suggest-memory";
 import { retainSuggesterCall } from "../../lib/hindsight-retain";
+import { validateMatchesWithLlm } from "../../lib/llm-validate";
 import { c, print } from "../../lib/output";
 import { createHash } from "node:crypto";
 import type { SuggestMatch } from "../../types";
@@ -15,6 +16,13 @@ export async function runSuggest(args: string[]): Promise<number> {
   const fast = args.includes("--fast"); // hook-friendly: never load model
   const noMemory = args.includes("--no-memory");
   const explain = args.includes("--explain");
+  // LLM sanity-check: ~3s, opt-in. Catches semantic false positives that
+  // keyword/embedding/project-boost can't (e.g. "cli" token matching unrelated
+  // CLI skills). On by default when HINDSIGHT_SUGGEST_VALIDATE=1.
+  const validate =
+    args.includes("--validate") || process.env.HINDSIGHT_SUGGEST_VALIDATE === "1";
+  const noValidate = args.includes("--no-validate");
+  const validateActive = validate && !noValidate && !fast; // never on the hook-friendly path
 
   const minConfFlag = parseFlag(args, "--min-confidence");
   const minConf = minConfFlag ? parseFloat(minConfFlag) : 0.45;
@@ -129,6 +137,23 @@ export async function runSuggest(args: string[]): Promise<number> {
     if (filtered.length > 0) matches = filtered;
   }
 
+  // LLM sanity-check (opt-in, costs ~3s). Drops matches that share tokens
+  // but aren't semantically relevant. Fail-open: if the validator can't run
+  // for any reason, the original matches are returned unchanged.
+  let validateNote: string | null = null;
+  let llmDrops: Array<{ name: string; reason?: string }> = [];
+  if (validateActive && matches.length > 0) {
+    const v = validateMatchesWithLlm(prompt, matches);
+    if (v.ranOk) {
+      const before = matches.length;
+      matches = v.filtered;
+      llmDrops = v.drops;
+      validateNote = `validated ${before}→${matches.length}, ${v.drops.length} dropped`;
+    } else {
+      validateNote = `validate failed: ${v.errorReason ?? "unknown"} — kept original ${matches.length}`;
+    }
+  }
+
   // Persist to memory (best-effort, non-blocking)
   if (!noMemory && matches.length > 0) {
     appendMemory(
@@ -154,7 +179,7 @@ export async function runSuggest(args: string[]): Promise<number> {
     });
   }
 
-  return printResult(json, matches, explain, result.stats.triggered, result);
+  return printResult(json, matches, explain, result.stats.triggered, result, validateNote, llmDrops);
 }
 
 function printResult(
@@ -162,7 +187,9 @@ function printResult(
   matches: SuggestMatch[],
   explain: boolean,
   layer: string,
-  result?: HybridResult
+  result?: HybridResult,
+  validateNote?: string | null,
+  llmDrops: Array<{ name: string; reason?: string }> = []
 ): number {
   if (json) {
     print(
@@ -181,6 +208,7 @@ function printResult(
           })),
           layer,
           ...(result ? { stats: result.stats, layers: result.layers } : {}),
+          ...(validateNote ? { validate: validateNote, llmDrops } : {}),
         },
         null,
         2
@@ -215,6 +243,14 @@ function printResult(
         `  via ${layer} (kw=${result.stats.kwBest.toFixed(2)}, ctx=${result.stats.contextBoosts}, emb=${result.stats.embBest.toFixed(2)})`
       )
     );
+  }
+  if (validateNote && (explain || llmDrops.length > 0)) {
+    print(c.dim(`  ${validateNote}`));
+    if (explain) {
+      for (const d of llmDrops.slice(0, 4)) {
+        print(c.dim(`    dropped ${d.name}: ${d.reason ?? "(no reason)"}`));
+      }
+    }
   }
   return 0;
 }
