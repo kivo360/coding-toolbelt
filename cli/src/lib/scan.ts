@@ -214,15 +214,21 @@ function cleanDescription(desc: string): string {
   return desc.replace(/\s+/g, " ").trim().slice(0, 500);
 }
 
-function extractTriggers(description: string, name: string): string[] {
+const COMMON_NAME_PARTS = new Set([
+  "best", "practices", "guidelines", "patterns", "complete", "review",
+  "system", "systems", "management", "exception", "exceptions",
+  "returns", "return", "production", "scheduling",
+  "compliance", "tracking",
+  "service", "services", "library", "framework",
+  "audit", "check", "checks", "guide",
+]);
+
+function extractTriggers(_description: string, name: string): string[] {
   const tokens = new Set<string>();
   tokens.add(name);
-  for (const part of name.split("-")) tokens.add(part);
-  const useWhen = description.match(/use when (?:user says |the user (?:says|wants|asks))?([^.]*)/i);
-  if (useWhen) {
-    for (const t of useWhen[1].split(/[,;]/)) {
-      const trimmed = t.trim().toLowerCase();
-      if (trimmed && trimmed.length < 60) tokens.add(trimmed);
+  for (const part of name.split("-")) {
+    if (part.length >= 2 && !COMMON_NAME_PARTS.has(part.toLowerCase())) {
+      tokens.add(part);
     }
   }
   return [...tokens].slice(0, 12);

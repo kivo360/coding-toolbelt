@@ -4,14 +4,22 @@ import { c, print } from "../../lib/output";
 
 export async function runSuggest(args: string[]): Promise<number> {
   const json = args.includes("--json");
+  const coldOnly = args.includes("--cold-only");
   const minConfFlag = parseFlag(args, "--min-confidence");
-  const minConf = minConfFlag ? parseFloat(minConfFlag) : 0.3;
+  const minConf = minConfFlag ? parseFloat(minConfFlag) : 0.45;
   const limitFlag = parseFlag(args, "--limit");
   const limit = limitFlag ? parseInt(limitFlag, 10) : 3;
   const tiersFlag = parseFlag(args, "--tiers");
   const tiers = tiersFlag ? new Set(tiersFlag.toUpperCase().split(",")) : new Set(["B", "C"]);
 
-  const positional = args.filter((a) => !a.startsWith("--") && a !== minConfFlag && a !== limitFlag && a !== tiersFlag);
+  const flagOnlyArgs = new Set(["--json", "--include-active"]);
+  const flagsWithValues = new Set([minConfFlag, limitFlag, tiersFlag].filter((v): v is string => Boolean(v)));
+  const positional = args.filter((a, i) => {
+    if (a.startsWith("--")) return false;
+    if (flagsWithValues.has(a)) return false;
+    if (i > 0 && (args[i - 1] === "--min-confidence" || args[i - 1] === "--limit" || args[i - 1] === "--tiers")) return false;
+    return true;
+  });
   const prompt = positional.join(" ").trim();
 
   if (!prompt) {
@@ -19,7 +27,7 @@ export async function runSuggest(args: string[]): Promise<number> {
       print(JSON.stringify({ suggestions: [] }));
       return 0;
     }
-    print(c.red("Usage:") + " toolbelt skills suggest <prompt> [--min-confidence 0.6] [--limit 3] [--tiers B,C] [--json]");
+    print(c.red("Usage:") + " toolbelt skills suggest <prompt> [--min-confidence 0.45] [--limit 3] [--tiers B,C] [--cold-only] [--json]");
     return 1;
   }
 
@@ -33,9 +41,11 @@ export async function runSuggest(args: string[]): Promise<number> {
     return 1;
   }
 
-  const matches = findMatches(index, prompt, { minScore: 6, limit: limit * 3, tiers })
+  const raw = findMatches(index, prompt, { minScore: 10, limit: limit * 3, tiers, requireNameOrTrigger: true });
+  const filtered = (coldOnly ? raw.filter((m) => !m.installedPath) : raw)
     .filter((m) => m.confidence >= minConf)
     .slice(0, limit);
+  const matches = filtered;
 
   if (json) {
     print(

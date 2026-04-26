@@ -1,79 +1,281 @@
 import type { SkillEntry, SkillsIndex, SuggestMatch } from "../types";
 
 const STOP_WORDS = new Set([
-  "the", "and", "for", "with", "that", "from", "this", "into",
-  "have", "has", "are", "was", "but", "any", "all", "you", "your",
-  "use", "using", "im", "ive", "ill",
+  // grammatical
+  "the", "and", "for", "with", "that", "from", "this", "into", "onto",
+  "have", "has", "had", "are", "was", "were", "but", "any", "all",
+  "you", "your", "yours", "they", "them", "their", "our", "his", "her",
+  "to", "of", "in", "on", "at", "by", "as", "is", "be", "been", "being",
+  "im", "ive", "ill", "id", "youre", "weve", "well", "youd", "wed", "ya",
+  // generic verbs (intent-bearing but too noisy alone)
+  "use", "using", "used", "uses",
+  "make", "made", "making", "makes",
+  "do", "doing", "done", "did", "does",
+  "go", "going", "went", "gone", "goes",
+  "want", "wants", "wanted", "wanting",
+  "need", "needs", "needed", "needing",
+  "try", "tried", "trying", "tries",
+  "help", "helps", "helped", "helping",
+  "get", "gets", "got", "getting", "gotten",
+  "let", "lets", "letting",
+  "think", "thought", "thinking", "thinks",
+  "know", "knew", "knows", "known", "knowing",
+  "take", "took", "taking", "taken", "takes",
+  "find", "found", "finds", "finding",
+  "give", "gave", "given", "giving", "gives",
+  "show", "showed", "showing", "shown", "shows",
+  "say", "said", "saying", "says",
+  "see", "seen", "seeing", "sees", "saw",
+  "look", "looked", "looking", "looks",
+  // verbs that collide with skill names — drop unless paired
+  "push", "pushed", "pushing", "pushes",
+  "design", "designs", "designed", "designing", "designer",
+  "build", "builds", "built", "building",
+  "save", "saves", "saved", "saving",
+  "load", "loads", "loaded", "loading",
+  "work", "works", "worked", "working",
+  "send", "sends", "sent", "sending",
+  "open", "opens", "opened", "opening",
+  "create", "creates", "created", "creating",
+  "add", "adds", "added", "adding",
+  "remove", "removes", "removed", "removing",
+  "set", "sets", "setting",
+  "update", "updates", "updated", "updating",
+  "change", "changes", "changed", "changing",
+  // pronouns / fillers
+  "can", "could", "would", "should", "might", "may", "must", "will", "shall",
+  "really", "just", "now", "then", "than", "still", "yet", "very", "quite",
+  "what", "when", "where", "why", "how", "who", "which", "whom", "whose",
+  "some", "more", "most", "less", "much", "many", "few", "lot", "lots",
+  "yes", "no", "ok", "okay", "sure", "right", "good", "bad", "great",
+  "yeah", "nope", "hey", "hi", "hello",
+  // negation/conditional (tracked separately for negation logic)
+  "not", "never", "without", "if", "unless", "neither", "nor",
+  // tense
+  "yesterday", "today", "tomorrow", "soon", "later", "always", "sometimes", "ago",
+  // generic project nouns that appear in many descriptions
+  "code", "file", "files", "thing", "things", "stuff", "way", "time",
+  "feature", "features", "version", "issue", "issues",
+  "user", "users", "team", "teams",
 ]);
 
-export function tokenize(text: string): string[] {
-  const tokens = text
+const NEGATION_TOKENS = new Set(["not", "never", "no", "without", "skip", "avoid", "ignore"]);
+
+/**
+ * Skill-name parts that are too generic to anchor a match on their own.
+ * If a name-token-only hit is one of these, treat it as a description-level
+ * (weak) signal rather than a strong name anchor.
+ */
+export const WEAK_NAME_TOKENS = new Set([
+  "best", "practices", "guidelines", "patterns", "complete", "review",
+  "system", "systems", "management", "exception", "exceptions",
+  "returns", "return", "production", "scheduling",
+  "compliance", "tracking",
+  "service", "services", "library", "framework",
+  "audit", "check", "checks", "guide", "guides",
+  "api", "apis",
+  "data", "info", "core", "common", "main",
+  "tools", "tool", "helpers", "helper", "utils", "util",
+]);
+
+function stem(word: string): string {
+  if (word.length <= 4) return word;
+  if (word.endsWith("ies") && word.length > 5) return word.slice(0, -3) + "y";
+  if (word.endsWith("ied") && word.length > 5) return word.slice(0, -3) + "y";
+  if (word.endsWith("ing") && word.length > 5) return word.slice(0, -3);
+  if (word.endsWith("ed") && word.length > 5) return word.slice(0, -2);
+  if (word.endsWith("es") && word.length > 5) return word.slice(0, -2);
+  if (word.endsWith("s") && word.length > 4 && !word.endsWith("ss")) return word.slice(0, -1);
+  return word;
+}
+
+export function sanitizeQuery(text: string): string {
+  let s = text;
+  s = s.replace(/```[\s\S]*?```/g, " ");
+  s = s.replace(/`[^`]*`/g, " ");
+  s = s.replace(/https?:\/\/\S+/g, " ");
+  s = s.replace(/\b\/[\w\/.\-]+/g, " ");
+  s = s.replace(/\{[\s\S]{0,200}?\}/g, " ");
+  s = s.replace(/<[^>]+>/g, " ");
+  return s;
+}
+
+function rawTokens(text: string): string[] {
+  return text
     .toLowerCase()
     .replace(/[^a-z0-9\s\-_./]+/g, " ")
     .split(/\s+/)
-    .filter((t) => t.length >= 2 && t.length <= 40)
-    .filter((t) => !STOP_WORDS.has(t));
-  const expanded = new Set<string>(tokens);
-  for (const t of tokens) {
-    if (t.includes("-")) for (const p of t.split("-")) if (p.length >= 2) expanded.add(p);
-    if (t.includes("_")) for (const p of t.split("_")) if (p.length >= 2) expanded.add(p);
-    if (t.includes(".")) for (const p of t.split(".")) if (p.length >= 2) expanded.add(p);
+    .filter((t) => t.length >= 2 && t.length <= 40);
+}
+
+export function tokenize(text: string): string[] {
+  const sanitized = sanitizeQuery(text);
+  const raw = rawTokens(sanitized).filter((t) => !STOP_WORDS.has(t));
+  const expanded = new Set<string>();
+  for (const t of raw) {
+    expanded.add(t);
+    const stemmed = stem(t);
+    if (stemmed !== t) expanded.add(stemmed);
+    if (t.includes("-")) {
+      for (const p of t.split("-")) {
+        if (p.length >= 2 && !STOP_WORDS.has(p)) {
+          expanded.add(p);
+          expanded.add(stem(p));
+        }
+      }
+    }
+    if (t.includes("_")) {
+      for (const p of t.split("_")) {
+        if (p.length >= 2 && !STOP_WORDS.has(p)) {
+          expanded.add(p);
+          expanded.add(stem(p));
+        }
+      }
+    }
+    if (t.includes(".")) {
+      for (const p of t.split(".")) {
+        if (p.length >= 2 && !STOP_WORDS.has(p)) {
+          expanded.add(p);
+          expanded.add(stem(p));
+        }
+      }
+    }
   }
   return [...expanded];
 }
 
-export function matchScore(skill: SkillEntry, queryTokens: string[]): {
-  score: number;
-  matched: string[];
-} {
-  if (queryTokens.length === 0) return { score: 0, matched: [] };
+/**
+ * Find pairs of (negation-token, target-token) within window.
+ * Returns the set of target tokens to suppress.
+ */
+export function detectNegatedTokens(text: string, windowSize = 5): Set<string> {
+  const negated = new Set<string>();
+  const tokens = rawTokens(sanitizeQuery(text));
+  for (let i = 0; i < tokens.length; i++) {
+    if (NEGATION_TOKENS.has(tokens[i])) {
+      for (let j = i + 1; j < Math.min(i + 1 + windowSize, tokens.length); j++) {
+        if (NEGATION_TOKENS.has(tokens[j])) break;
+        negated.add(tokens[j]);
+        negated.add(stem(tokens[j]));
+      }
+    }
+  }
+  return negated;
+}
+
+export function matchScore(
+  skill: SkillEntry,
+  queryTokens: string[],
+  negated: Set<string> = new Set()
+): { score: number; matched: string[]; hasNameOrTrigger: boolean } {
+  if (queryTokens.length === 0) return { score: 0, matched: [], hasNameOrTrigger: false };
   const matched = new Set<string>();
   let score = 0;
+  let hasNameOrTrigger = false;
 
-  const nameTokens = new Set(tokenize(skill.name));
-  const descTokens = new Set(tokenize(skill.description));
-  const triggerTokens = new Set(skill.triggers.flatMap(tokenize));
+  const nameTokens = new Set<string>();
+  const weakNameTokens = new Set<string>();
+  for (const t of tokenize(skill.name)) {
+    if (WEAK_NAME_TOKENS.has(t)) {
+      weakNameTokens.add(t);
+      weakNameTokens.add(stem(t));
+    } else {
+      nameTokens.add(t);
+      nameTokens.add(stem(t));
+    }
+  }
+  for (const part of skill.name.split(/[-_.]/)) {
+    const lower = part.toLowerCase();
+    if (lower.length < 2 || STOP_WORDS.has(lower)) continue;
+    if (WEAK_NAME_TOKENS.has(lower)) {
+      weakNameTokens.add(lower);
+      weakNameTokens.add(stem(lower));
+    } else {
+      nameTokens.add(lower);
+      nameTokens.add(stem(lower));
+    }
+  }
+
+  const descTokens = new Set<string>();
+  for (const t of tokenize(skill.description)) {
+    descTokens.add(t);
+    descTokens.add(stem(t));
+  }
+
+  const triggerTokens = new Set<string>();
+  for (const trig of skill.triggers) {
+    for (const t of tokenize(trig)) {
+      if (WEAK_NAME_TOKENS.has(t)) {
+        weakNameTokens.add(t);
+        weakNameTokens.add(stem(t));
+      } else {
+        triggerTokens.add(t);
+        triggerTokens.add(stem(t));
+      }
+    }
+  }
 
   for (const q of queryTokens) {
-    if (skill.name === q) {
+    if (negated.has(q) || negated.has(stem(q))) continue;
+    const qStem = stem(q);
+
+    if (skill.name === q || skill.name === qStem) {
       score += 30;
       matched.add(q);
+      hasNameOrTrigger = true;
       continue;
     }
-    if (nameTokens.has(q)) {
+    if (nameTokens.has(q) || nameTokens.has(qStem)) {
       score += 12;
       matched.add(q);
+      hasNameOrTrigger = true;
       continue;
     }
-    if (triggerTokens.has(q)) {
+    if (triggerTokens.has(q) || triggerTokens.has(qStem)) {
       score += 8;
+      matched.add(q);
+      hasNameOrTrigger = true;
+      continue;
+    }
+    if (weakNameTokens.has(q) || weakNameTokens.has(qStem)) {
+      score += 2;
       matched.add(q);
       continue;
     }
-    if (descTokens.has(q)) {
-      score += 3;
+    if (descTokens.has(q) || descTokens.has(qStem)) {
+      score += 2;
       matched.add(q);
       continue;
     }
   }
 
-  return { score, matched: [...matched] };
+  return { score, matched: [...matched], hasNameOrTrigger };
+}
+
+export interface FindOpts {
+  minScore?: number;
+  limit?: number;
+  tiers?: Set<string>;
+  requireNameOrTrigger?: boolean;
 }
 
 export function findMatches(
   index: SkillsIndex,
   query: string,
-  opts: { minScore?: number; limit?: number; tiers?: Set<string> } = {}
+  opts: FindOpts = {}
 ): SuggestMatch[] {
-  const minScore = opts.minScore ?? 4;
+  const minScore = opts.minScore ?? 8;
   const limit = opts.limit ?? 10;
+  const requireNameOrTrigger = opts.requireNameOrTrigger ?? true;
   const queryTokens = tokenize(query);
+  const negated = detectNegatedTokens(query);
   const matches: SuggestMatch[] = [];
 
   for (const [name, skill] of Object.entries(index.skills)) {
     if (opts.tiers && !opts.tiers.has(skill.tier)) continue;
-    const { score, matched } = matchScore(skill, queryTokens);
+    const { score, matched, hasNameOrTrigger } = matchScore(skill, queryTokens, negated);
     if (score < minScore) continue;
+    if (requireNameOrTrigger && !hasNameOrTrigger) continue;
     matches.push({
       name,
       tier: skill.tier,
