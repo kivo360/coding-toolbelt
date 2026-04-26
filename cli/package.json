@@ -12,7 +12,8 @@
     "build:compile": "bun build --compile --target=bun-darwin-arm64 src/index.ts --outfile bin/toolbelt-static",
     "build:linux": "bun build --compile --target=bun-linux-x64 src/index.ts --outfile bin/toolbelt-static-linux-x64",
     "install:local": "bun run build && chmod +x bin/toolbelt && ln -sf $(pwd)/bin/toolbelt $HOME/.local/bin/toolbelt && echo 'Linked to ~/.local/bin/toolbelt'",
-    "test": "bun test"
+    "test": "bun test",
+    "test:retain": "../review-with-memory/test-bridge/retain_test_failure.py --label cli -- bun test"
   },
   "devDependencies": {
     "@types/bun": "latest",
