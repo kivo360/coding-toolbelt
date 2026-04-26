@@ -29,6 +29,7 @@ import {
   cosineSim,
   type EmbeddingsIndex,
 } from "./embeddings";
+import type { ChromaSkillStore } from "./chroma-store";
 
 /**
  * A skill is "negation-tainted" when a prompt-negated token appears in
@@ -59,6 +60,13 @@ export interface HybridOpts {
   deep?: boolean;
   /** Pre-loaded embeddings (avoids re-reading the JSON file). */
   embeddings?: EmbeddingsIndex | null;
+  /**
+   * Connected Chroma store. When supplied AND `deep` is true, the
+   * top-K cosine search uses Chroma's HNSW index instead of looping
+   * over `embeddings`. The two paths produce equivalent confidence
+   * scores — Chroma is just faster at scale.
+   */
+  chromaStore?: ChromaSkillStore;
   /** Cosine similarity below this is treated as no match. */
   embeddingFloor?: number;
   /** Cosine similarity above this is treated as full confidence. */
@@ -67,6 +75,8 @@ export interface HybridOpts {
   uncertaintyThreshold?: number;
   /** Weight for keyword vs embedding in blend (kw share). */
   keywordWeight?: number;
+  /** Top-K to fetch from the embedding source (default 20). */
+  embeddingTopK?: number;
 }
 
 export interface HybridResult {
@@ -76,6 +86,7 @@ export interface HybridResult {
     kwBest: number;
     contextBoosts: number;
     embBest: number;
+    embSource: "chroma" | "json" | "none";
     triggered: "keyword" | "context" | "embedding";
   };
 }
@@ -171,23 +182,52 @@ export async function findMatchesHybrid(
   // false positives (e.g. "subscription churn flows" anchoring on
   // kotlin-coroutines-flows via the "flows" token). When keyword is
   // weak, embeddings supply the signal directly.
+  //
+  // Source priority: Chroma (HNSW, scale-friendly) → JSON (linear
+  // cosine, 295-skill scale fine). Both produce the same cos values
+  // so the downstream blend math is identical.
   let embBest = 0;
   let embRan = false;
+  let embSource: "chroma" | "json" | "none" = "none";
   let embTopByName = new Map<string, number>();
   if (opts.deep) {
-    const emb = opts.embeddings ?? (await loadEmbeddings());
-    if (emb) {
-      embRan = true;
-      const queryVec = await embedQuery(query);
-      for (const [name, sv] of Object.entries(emb.skills)) {
-        const skill = index.skills[name];
-        if (!skill) continue;
-        if (opts.tiers && !opts.tiers.has(skill.tier)) continue;
-        const cos = cosineSim(queryVec, sv.vector);
-        embTopByName.set(name, cos);
-        if (cos < embFloor) continue;
-        const conf = embeddingConfidence(cos, embFloor, embCeiling);
-        if (conf > embBest) embBest = conf;
+    const queryVec = await embedQuery(query);
+    const topK = opts.embeddingTopK ?? 20;
+
+    if (opts.chromaStore) {
+      try {
+        const tiersArr = opts.tiers ? [...opts.tiers] : undefined;
+        const hits = await opts.chromaStore.query(queryVec, topK, { tiers: tiersArr });
+        for (const hit of hits) {
+          const skill = index.skills[hit.name];
+          if (!skill) continue;
+          embTopByName.set(hit.name, hit.cosine);
+          if (hit.cosine < embFloor) continue;
+          const conf = embeddingConfidence(hit.cosine, embFloor, embCeiling);
+          if (conf > embBest) embBest = conf;
+        }
+        embRan = true;
+        embSource = "chroma";
+      } catch {
+        // Chroma RPC failed mid-query — fall through to JSON below.
+      }
+    }
+
+    if (!embRan) {
+      const emb = opts.embeddings ?? (await loadEmbeddings());
+      if (emb) {
+        embRan = true;
+        embSource = "json";
+        for (const [name, sv] of Object.entries(emb.skills)) {
+          const skill = index.skills[name];
+          if (!skill) continue;
+          if (opts.tiers && !opts.tiers.has(skill.tier)) continue;
+          const cos = cosineSim(queryVec, sv.vector);
+          embTopByName.set(name, cos);
+          if (cos < embFloor) continue;
+          const conf = embeddingConfidence(cos, embFloor, embCeiling);
+          if (conf > embBest) embBest = conf;
+        }
       }
     }
   }
@@ -278,6 +318,7 @@ export async function findMatchesHybrid(
       kwBest,
       contextBoosts: Object.keys(contextBoosts).length,
       embBest,
+      embSource,
       triggered,
     },
   };
