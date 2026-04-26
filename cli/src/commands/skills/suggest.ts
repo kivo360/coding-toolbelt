@@ -1,10 +1,19 @@
 import { readIndex } from "../../lib/index-store";
-import { findMatches } from "../../lib/matcher";
+import { findMatchesHybrid } from "../../lib/hybrid-matcher";
+import { pingDaemon, daemonMatch } from "../../lib/daemon-client";
+import { appendMemory, makeRecord, recall, recentlySuggested } from "../../lib/suggest-memory";
 import { c, print } from "../../lib/output";
+import type { SuggestMatch } from "../../types";
+import type { HybridResult } from "../../lib/hybrid-matcher";
 
 export async function runSuggest(args: string[]): Promise<number> {
   const json = args.includes("--json");
   const coldOnly = args.includes("--cold-only");
+  const deep = args.includes("--deep");
+  const fast = args.includes("--fast"); // hook-friendly: never load model
+  const noMemory = args.includes("--no-memory");
+  const explain = args.includes("--explain");
+
   const minConfFlag = parseFlag(args, "--min-confidence");
   const minConf = minConfFlag ? parseFloat(minConfFlag) : 0.45;
   const limitFlag = parseFlag(args, "--limit");
@@ -12,12 +21,19 @@ export async function runSuggest(args: string[]): Promise<number> {
   const tiersFlag = parseFlag(args, "--tiers");
   const tiers = tiersFlag ? new Set(tiersFlag.toUpperCase().split(",")) : new Set(["B", "C"]);
 
-  const flagOnlyArgs = new Set(["--json", "--include-active"]);
-  const flagsWithValues = new Set([minConfFlag, limitFlag, tiersFlag].filter((v): v is string => Boolean(v)));
+  const flagsWithValues = new Set(
+    [minConfFlag, limitFlag, tiersFlag].filter((v): v is string => Boolean(v))
+  );
   const positional = args.filter((a, i) => {
     if (a.startsWith("--")) return false;
     if (flagsWithValues.has(a)) return false;
-    if (i > 0 && (args[i - 1] === "--min-confidence" || args[i - 1] === "--limit" || args[i - 1] === "--tiers")) return false;
+    if (
+      i > 0 &&
+      (args[i - 1] === "--min-confidence" ||
+        args[i - 1] === "--limit" ||
+        args[i - 1] === "--tiers")
+    )
+      return false;
     return true;
   });
   const prompt = positional.join(" ").trim();
@@ -27,7 +43,10 @@ export async function runSuggest(args: string[]): Promise<number> {
       print(JSON.stringify({ suggestions: [] }));
       return 0;
     }
-    print(c.red("Usage:") + " toolbelt skills suggest <prompt> [--min-confidence 0.45] [--limit 3] [--tiers B,C] [--cold-only] [--json]");
+    print(
+      c.red("Usage:") +
+        " toolbelt skills suggest <prompt> [--min-confidence 0.45] [--limit 3] [--tiers B,C] [--cold-only] [--deep] [--fast] [--json] [--explain]"
+    );
     return 1;
   }
 
@@ -41,12 +60,94 @@ export async function runSuggest(args: string[]): Promise<number> {
     return 1;
   }
 
-  const raw = findMatches(index, prompt, { minScore: 10, limit: limit * 3, tiers, requireNameOrTrigger: true });
-  const filtered = (coldOnly ? raw.filter((m) => !m.installedPath) : raw)
-    .filter((m) => m.confidence >= minConf)
-    .slice(0, limit);
-  const matches = filtered;
+  // ── Memory recall (free, instant) ───────────────────────────────
+  if (!noMemory && !deep) {
+    const cached = await recall(prompt);
+    if (cached.hit && cached.hit.suggestions.length > 0 && cached.hit.layer !== "memory") {
+      const matches = cached.hit.suggestions
+        .map((s) => {
+          const sk = index.skills[s.name];
+          if (!sk) return null;
+          if (tiers && !tiers.has(sk.tier)) return null;
+          if (s.conf < minConf) return null;
+          return {
+            name: s.name,
+            tier: sk.tier,
+            description: sk.description,
+            confidence: s.conf,
+            matched: ["<memory>"],
+            installedPath: sk.installedPath,
+          } satisfies SuggestMatch;
+        })
+        .filter((m): m is SuggestMatch => m !== null)
+        .slice(0, limit);
+      if (matches.length > 0) {
+        return printResult(json, matches, explain, "memory");
+      }
+    }
+  }
 
+  // ── Daemon path (preferred when running) ─────────────────────────
+  let result: HybridResult | null = null;
+  if (!fast) {
+    const health = await pingDaemon(80);
+    if (health) {
+      result = await daemonMatch(prompt, {
+        deep,
+        tiers: [...tiers] as string[],
+        limit: limit * 3,
+        minConfidence: minConf,
+        timeoutMs: deep ? 1500 : 500,
+      });
+    }
+  }
+
+  // ── In-process path (no daemon, or --fast) ───────────────────────
+  if (!result) {
+    result = await findMatchesHybrid(index, prompt, {
+      minScore: 10,
+      minConfidence: minConf,
+      limit: limit * 3,
+      tiers,
+      requireNameOrTrigger: true,
+      deep: deep && !fast,
+    });
+  }
+
+  let matches = (coldOnly
+    ? result.matches.filter((m) => !m.installedPath)
+    : result.matches
+  ).slice(0, limit);
+
+  // De-spam: drop a suggestion if it's been suggested in the last 5 prompts
+  // and its confidence is borderline (<0.7).
+  if (!noMemory && matches.length > 0) {
+    const recent = await recentlySuggested(5);
+    const filtered = matches.filter((m) => !(recent.has(m.name) && m.confidence < 0.7));
+    if (filtered.length > 0) matches = filtered;
+  }
+
+  // Persist to memory (best-effort, non-blocking)
+  if (!noMemory && matches.length > 0) {
+    appendMemory(
+      makeRecord(
+        prompt,
+        result.stats.triggered,
+        matches.map((m) => ({ name: m.name, conf: m.confidence }))
+      )
+    ).catch(() => {});
+  }
+
+  return printResult(json, matches, explain, result.stats.triggered, result);
+}
+
+function printResult(
+  json: boolean,
+  matches: SuggestMatch[],
+  explain: boolean,
+  layer: string,
+  result?: HybridResult
+): number {
   if (json) {
     print(
       JSON.stringify(
@@ -60,7 +161,10 @@ export async function runSuggest(args: string[]): Promise<number> {
             installCommand: m.installedPath
               ? null
               : `toolbelt skills install ${m.name}`,
+            matched: m.matched,
           })),
+          layer,
+          ...(result ? { stats: result.stats, layers: result.layers } : {}),
         },
         null,
         2
@@ -77,10 +181,24 @@ export async function runSuggest(args: string[]): Promise<number> {
   print(c.bold("Suggested skills for this prompt:"));
   for (const m of matches) {
     const status = m.installedPath ? c.green("[installed]") : c.yellow("[cold/staging]");
-    print(`  📚 ${c.bold(m.name)} ${c.dim(`[${m.tier}]`)} ${status} — ${truncate(m.description, 80)}`);
+    print(
+      `  📚 ${c.bold(m.name)} ${c.dim(`[${m.tier}]`)} ${status} ` +
+        c.dim(`(${(m.confidence * 100).toFixed(0)}%)`) +
+        ` — ${truncate(m.description, 80)}`
+    );
     if (!m.installedPath) {
       print(c.dim(`     install: toolbelt skills install ${m.name}`));
     }
+    if (explain) {
+      print(c.dim(`     matched: ${m.matched.join(", ")}`));
+    }
+  }
+  if (explain && result) {
+    print(
+      c.dim(
+        `  via ${layer} (kw=${result.stats.kwBest.toFixed(2)}, ctx=${result.stats.contextBoosts}, emb=${result.stats.embBest.toFixed(2)})`
+      )
+    );
   }
   return 0;
 }

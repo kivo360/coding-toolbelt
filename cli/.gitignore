@@ -1,5 +1,9 @@
 node_modules/
-bin/toolbelt
-bin/toolbelt-*
+bin/toolbelt.bundle.js
+bin/toolbelt-static*
+bin/*.node
 *.log
 .DS_Store
+
+# Local fastembed model cache (~22 MB, re-downloaded on first run)
+local_cache/

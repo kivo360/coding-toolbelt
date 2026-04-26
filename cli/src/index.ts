@@ -6,6 +6,8 @@ import { runFind } from "./commands/skills/find";
 import { runSuggest } from "./commands/skills/suggest";
 import { runTier } from "./commands/skills/tier";
 import { runInstall, runPromote, runDemote } from "./commands/skills/move";
+import { runEmbed } from "./commands/skills/embed";
+import { runServe } from "./commands/skills/serve";
 import { c, print, printErr } from "./lib/output";
 
 const VERSION = "0.1.0";
@@ -29,6 +31,18 @@ ${c.bold("Skills:")}
   toolbelt skills suggest "<prompt>"            Top matches for a free-text prompt
   toolbelt skills suggest "<prompt>" --json     For UserPromptSubmit hook integration
   toolbelt skills suggest "<prompt>" --tiers B,C  Limit to specific tiers
+  toolbelt skills suggest "<prompt>" --deep     Run embedding fallback (Layer 1)
+  toolbelt skills suggest "<prompt>" --fast     Skip daemon + embeddings (hook-safe)
+  toolbelt skills suggest "<prompt>" --explain  Show why each match scored
+
+  toolbelt skills embed                         Build/refresh embeddings index (~22 MB model on first run)
+  toolbelt skills embed --rebuild               Force re-embed all skills
+  toolbelt skills embed --status                Show embeddings index info
+
+  toolbelt skills serve                         Run embedding daemon (Layer 1 hot path)
+  toolbelt skills serve --port 9988             Custom port
+  toolbelt skills serve --status                Health check
+  toolbelt skills serve --stop                  Send SIGTERM to running daemon
 
   toolbelt skills tier <name>                   Show a skill's tier
   toolbelt skills tier <name> S|A|B|C           Set a skill's tier (in index only)
@@ -86,6 +100,10 @@ async function main(argv: string[]): Promise<number> {
       return runReindex(rest);
     case "doctor":
       return runDoctor(rest);
+    case "embed":
+      return runEmbed(rest);
+    case "serve":
+      return runServe(rest);
     default:
       printErr(c.red(`Unknown subcommand: skills ${subcommand ?? "(none)"}`));
       printErr(c.dim("Run `toolbelt --help` for usage."));

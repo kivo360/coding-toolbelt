@@ -6,7 +6,6 @@ const STOP_WORDS = new Set([
   "the", "and", "for", "with", "that", "from", "this", "into", "onto",
   "have", "has", "had", "are", "was", "were", "but", "any", "all",
   "you", "your", "yours", "they", "them", "their", "our", "his", "her",
-  "my", "me", "we", "us",
   "to", "of", "in", "on", "at", "by", "as", "is", "be", "been", "being",
   "im", "ive", "ill", "id", "youre", "weve", "well", "youd", "wed", "ya",
   // generic verbs (intent-bearing but too noisy alone)
@@ -78,21 +77,16 @@ export const WEAK_NAME_TOKENS = new Set([
   "api", "apis",
   "data", "info", "core", "common", "main",
   "tools", "tool", "helpers", "helper", "utils", "util",
-  "test", "tests", "testing",
-  "design", "designs",
-  "future", "past", "present",
-  "pattern", "patterns",
+  // Generic concept words — too domain-spanning to anchor on alone
+  "flow", "flows", "stream", "streams", "queue", "queues",
+  "config", "configs", "configuration",
+  "client", "clients", "server", "servers",
 ]);
 
 function stem(word: string): string {
   if (word.length <= 4) return word;
   if (word.endsWith("ies") && word.length > 5) return word.slice(0, -3) + "y";
   if (word.endsWith("ied") && word.length > 5) return word.slice(0, -3) + "y";
-  // Doubled consonant + ing/ed: shipping → ship, shipped → ship, tagged → tag
-  const doubledIng = word.match(/^(.+?)([bdgnptz])\2ing$/);
-  if (doubledIng && doubledIng[1].length >= 2) return doubledIng[1] + doubledIng[2];
-  const doubledEd = word.match(/^(.+?)([bdgnptz])\2ed$/);
-  if (doubledEd && doubledEd[1].length >= 2) return doubledEd[1] + doubledEd[2];
   if (word.endsWith("ing") && word.length > 5) return word.slice(0, -3);
   if (word.endsWith("ed") && word.length > 5) return word.slice(0, -2);
   if (word.endsWith("es") && word.length > 5) return word.slice(0, -2);

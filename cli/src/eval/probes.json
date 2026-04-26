@@ -1,0 +1,156 @@
+{
+  "probes": [
+    {
+      "id": "p01",
+      "prompt": "I need to add stripe checkout to my SaaS pricing page",
+      "expect": ["stripe-best-practices"],
+      "category": "TP-positive"
+    },
+    {
+      "id": "p02",
+      "prompt": "Setting up vitest mocks for our user-auth service",
+      "expect": ["vitest"],
+      "category": "TP-positive"
+    },
+    {
+      "id": "p03",
+      "prompt": "Configure turbo.json pipeline with remote caching",
+      "expect": ["turborepo"],
+      "category": "TP-positive"
+    },
+    {
+      "id": "p04",
+      "prompt": "Best way to handle subscription churn flows",
+      "expect": ["stripe-best-practices"],
+      "denylist": ["kotlin-coroutines-flows"],
+      "category": "veto-test"
+    },
+    {
+      "id": "p05",
+      "prompt": "Setting up Better Auth with Google OAuth",
+      "expect": ["better-auth-complete"],
+      "category": "TP-positive"
+    },
+    {
+      "id": "p06",
+      "prompt": "Need to ship this branch to production",
+      "expect": ["ship"],
+      "category": "TP-positive"
+    },
+    {
+      "id": "p07",
+      "prompt": "Today is a beautiful day",
+      "expect": [],
+      "category": "TN-no-match"
+    },
+    {
+      "id": "p08",
+      "prompt": "What is the meaning of life",
+      "expect": [],
+      "category": "TN-no-match"
+    },
+    {
+      "id": "p09",
+      "prompt": "I want to investigate why this test is flaky",
+      "expect": ["investigate"],
+      "category": "TP-positive"
+    },
+    {
+      "id": "p10",
+      "prompt": "Add posthog analytics to track feature usage",
+      "expect": ["posthog-instrumentation"],
+      "category": "TP-positive"
+    },
+    {
+      "id": "p11",
+      "prompt": "Set up sentry alerting for our prod errors",
+      "expect": ["sentry-fix-issues"],
+      "category": "TP-positive"
+    },
+    {
+      "id": "p12",
+      "prompt": "Drizzle ORM migration to add a users table",
+      "expect": ["drizzle-orm", "database-migrations"],
+      "category": "TP-multi"
+    },
+    {
+      "id": "p13",
+      "prompt": "Help me design a webhook signing flow",
+      "expect": ["stripe-best-practices"],
+      "category": "TP-domain"
+    },
+    {
+      "id": "p14",
+      "prompt": "I love painting watercolors",
+      "expect": [],
+      "category": "TN-no-match"
+    },
+    {
+      "id": "p15",
+      "prompt": "Review this PR's auth changes for security issues",
+      "expect": ["review", "security-review"],
+      "category": "TP-multi"
+    },
+    {
+      "id": "p16",
+      "prompt": "Fix this 401 in our API",
+      "expect": [],
+      "category": "TN-too-vague",
+      "note": "401 is an HTTP code that could be many things; suggesting better-auth would be wrong"
+    },
+    {
+      "id": "p17",
+      "prompt": "Building a Next.js app with shadcn/ui components",
+      "expect": ["next-forge", "shadcn"],
+      "category": "TP-multi"
+    },
+    {
+      "id": "p18",
+      "prompt": "Sending transactional email via Resend with React Email templates",
+      "expect": ["resend", "react-email"],
+      "category": "TP-multi"
+    },
+    {
+      "id": "p19",
+      "prompt": "I need to refactor the payment processing flow",
+      "expect": ["stripe-best-practices"],
+      "category": "TP-domain"
+    },
+    {
+      "id": "p20",
+      "prompt": "What's a good way to test our API endpoints end-to-end",
+      "expect": ["e2e-testing", "playwright-best-practices"],
+      "category": "TP-multi"
+    },
+    {
+      "id": "p21",
+      "prompt": "I'm not using stripe for this, just want to know about checkout in general",
+      "expect": [],
+      "category": "TN-negation"
+    },
+    {
+      "id": "p22",
+      "prompt": "Add gstack ship workflow to release this branch",
+      "expect": ["gstack", "ship"],
+      "category": "TP-tool-mention"
+    },
+    {
+      "id": "p23",
+      "prompt": "I'm coding in Bun and need to bundle a CLI",
+      "expect": ["bun-runtime"],
+      "category": "TP-tool-mention"
+    },
+    {
+      "id": "p24",
+      "prompt": "We use turbo for monorepo builds",
+      "expect": ["turborepo"],
+      "category": "TP-tool-mention"
+    },
+    {
+      "id": "p25",
+      "prompt": "Plan a database schema for user-generated content",
+      "expect": ["postgres-patterns", "api-design"],
+      "category": "TP-domain"
+    }
+  ]
+}
