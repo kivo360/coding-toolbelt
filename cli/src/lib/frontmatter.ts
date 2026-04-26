@@ -32,6 +32,29 @@ function parseYaml(input: string): SkillFrontmatter {
     const value = rawValue.trim();
 
     if (value === "" || value === "|" || value === ">" || value === ">-" || value === "|-" || value === ">+" || value === "|+") {
+      // Peek next non-empty line: if it's a list item, parse as list
+      let peek = i + 1;
+      while (peek < lines.length && lines[peek] === "") peek++;
+      if (
+        peek < lines.length &&
+        value === "" &&
+        /^\s+-\s+/.test(lines[peek])
+      ) {
+        const items: string[] = [];
+        let j = i + 1;
+        while (j < lines.length) {
+          const next = lines[j];
+          if (next === "") { j++; continue; }
+          const list = next.match(/^\s+-\s+(.*)$/);
+          if (!list) break;
+          items.push(list[1].trim().replace(/^["']|["']$/g, ""));
+          j++;
+        }
+        result[key] = items;
+        i = j;
+        continue;
+      }
+
       const block: string[] = [];
       const blockMode = value === "|" || value === "|-" || value === "|+" ? "literal" : "folded";
       i++;

@@ -1,10 +1,12 @@
 import type { SkillEntry, SkillsIndex, SuggestMatch } from "../types";
+import { expandSynonyms, FAMILY_ORCHESTRATORS } from "./synonyms";
 
 const STOP_WORDS = new Set([
   // grammatical
   "the", "and", "for", "with", "that", "from", "this", "into", "onto",
   "have", "has", "had", "are", "was", "were", "but", "any", "all",
   "you", "your", "yours", "they", "them", "their", "our", "his", "her",
+  "my", "me", "we", "us",
   "to", "of", "in", "on", "at", "by", "as", "is", "be", "been", "being",
   "im", "ive", "ill", "id", "youre", "weve", "well", "youd", "wed", "ya",
   // generic verbs (intent-bearing but too noisy alone)
@@ -76,12 +78,21 @@ export const WEAK_NAME_TOKENS = new Set([
   "api", "apis",
   "data", "info", "core", "common", "main",
   "tools", "tool", "helpers", "helper", "utils", "util",
+  "test", "tests", "testing",
+  "design", "designs",
+  "future", "past", "present",
+  "pattern", "patterns",
 ]);
 
 function stem(word: string): string {
   if (word.length <= 4) return word;
   if (word.endsWith("ies") && word.length > 5) return word.slice(0, -3) + "y";
   if (word.endsWith("ied") && word.length > 5) return word.slice(0, -3) + "y";
+  // Doubled consonant + ing/ed: shipping → ship, shipped → ship, tagged → tag
+  const doubledIng = word.match(/^(.+?)([bdgnptz])\2ing$/);
+  if (doubledIng && doubledIng[1].length >= 2) return doubledIng[1] + doubledIng[2];
+  const doubledEd = word.match(/^(.+?)([bdgnptz])\2ed$/);
+  if (doubledEd && doubledEd[1].length >= 2) return doubledEd[1] + doubledEd[2];
   if (word.endsWith("ing") && word.length > 5) return word.slice(0, -3);
   if (word.endsWith("ed") && word.length > 5) return word.slice(0, -2);
   if (word.endsWith("es") && word.length > 5) return word.slice(0, -2);
@@ -108,38 +119,25 @@ function rawTokens(text: string): string[] {
     .filter((t) => t.length >= 2 && t.length <= 40);
 }
 
-export function tokenize(text: string): string[] {
+export function tokenize(text: string, opts: { withSynonyms?: boolean } = {}): string[] {
   const sanitized = sanitizeQuery(text);
   const raw = rawTokens(sanitized).filter((t) => !STOP_WORDS.has(t));
   const expanded = new Set<string>();
-  for (const t of raw) {
+  const addToken = (t: string) => {
+    if (t.length < 2 || STOP_WORDS.has(t)) return;
     expanded.add(t);
     const stemmed = stem(t);
     if (stemmed !== t) expanded.add(stemmed);
-    if (t.includes("-")) {
-      for (const p of t.split("-")) {
-        if (p.length >= 2 && !STOP_WORDS.has(p)) {
-          expanded.add(p);
-          expanded.add(stem(p));
-        }
-      }
+    if (opts.withSynonyms) {
+      for (const syn of expandSynonyms(t)) expanded.add(syn);
+      for (const syn of expandSynonyms(stemmed)) expanded.add(syn);
     }
-    if (t.includes("_")) {
-      for (const p of t.split("_")) {
-        if (p.length >= 2 && !STOP_WORDS.has(p)) {
-          expanded.add(p);
-          expanded.add(stem(p));
-        }
-      }
-    }
-    if (t.includes(".")) {
-      for (const p of t.split(".")) {
-        if (p.length >= 2 && !STOP_WORDS.has(p)) {
-          expanded.add(p);
-          expanded.add(stem(p));
-        }
-      }
-    }
+  };
+  for (const t of raw) {
+    addToken(t);
+    if (t.includes("-")) for (const p of t.split("-")) addToken(p);
+    if (t.includes("_")) for (const p of t.split("_")) addToken(p);
+    if (t.includes(".")) for (const p of t.split(".")) addToken(p);
   }
   return [...expanded];
 }
@@ -267,7 +265,7 @@ export function findMatches(
   const minScore = opts.minScore ?? 8;
   const limit = opts.limit ?? 10;
   const requireNameOrTrigger = opts.requireNameOrTrigger ?? true;
-  const queryTokens = tokenize(query);
+  const queryTokens = tokenize(query, { withSynonyms: true });
   const negated = detectNegatedTokens(query);
   const matches: SuggestMatch[] = [];
 
@@ -286,6 +284,47 @@ export function findMatches(
     });
   }
 
+  applyFamilyOrchestratorBoost(matches, index, opts.tiers);
   matches.sort((a, b) => b.confidence - a.confidence || a.name.localeCompare(b.name));
   return matches.slice(0, limit);
+}
+
+/**
+ * If 2+ skills from a family are matched, also surface the family's
+ * orchestrator (e.g. better-auth-complete, ads) at boosted confidence.
+ * Helps when the user phrases an umbrella concept and we'd otherwise
+ * surface only specific siblings.
+ */
+function applyFamilyOrchestratorBoost(
+  matches: SuggestMatch[],
+  index: SkillsIndex,
+  tiers?: Set<string>
+): void {
+  const familyHits = new Map<string, number>();
+  for (const m of matches) {
+    for (const prefix of Object.keys(FAMILY_ORCHESTRATORS)) {
+      if (m.name === FAMILY_ORCHESTRATORS[prefix]) continue;
+      if (m.name === prefix || m.name.startsWith(prefix + "-")) {
+        familyHits.set(prefix, (familyHits.get(prefix) ?? 0) + 1);
+        break;
+      }
+    }
+  }
+
+  for (const [prefix, count] of familyHits) {
+    if (count < 2) continue;
+    const orchestrator = FAMILY_ORCHESTRATORS[prefix];
+    if (matches.some((m) => m.name === orchestrator)) continue;
+    const skill = index.skills[orchestrator];
+    if (!skill) continue;
+    if (tiers && !tiers.has(skill.tier)) continue;
+    matches.push({
+      name: orchestrator,
+      tier: skill.tier,
+      description: skill.description,
+      confidence: Math.min(0.85, 0.5 + count * 0.1),
+      matched: [`<${prefix}-family>`],
+      installedPath: skill.installedPath,
+    });
+  }
 }
