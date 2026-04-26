@@ -2,7 +2,7 @@
 # Install / uninstall the git-bridge hooks into a target repo.
 #
 # Installs:
-#   <repo>/.git/hooks/post-commit  →  retain_commit.py HEAD --quiet
+#   <repo>/.git/hooks/post-commit  →  retain_commit.py + snapshot_graph.py
 #   <repo>/.git/hooks/pre-commit   →  advise_staged.py --silent-on-empty
 #
 # Existing hooks are renamed with a timestamp suffix, never overwritten.
@@ -17,6 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RETAIN="$SCRIPT_DIR/retain_commit.py"
 ADVISE="$SCRIPT_DIR/advise_staged.py"
+SNAPSHOT="$SCRIPT_DIR/../graph-time-machine/snapshot_graph.py"
 
 REPO=""
 UNINSTALL=0
@@ -94,8 +95,10 @@ fi
 
 echo "installing git-bridge hooks into $REPO"
 write_hook "post-commit" "#!/usr/bin/env bash
-# review-with-memory/git-bridge: auto-retain every commit to Hindsight
-exec '$RETAIN' --quiet >/dev/null 2>&1 &"
+# review-with-memory/git-bridge: auto-retain every commit + snapshot the
+# CRG graph state. Both run detached so they never delay the commit.
+'$RETAIN' --quiet >/dev/null 2>&1 &
+'$SNAPSHOT' --quiet >/dev/null 2>&1 &"
 
 write_hook "pre-commit" "#!/usr/bin/env bash
 # review-with-memory/git-bridge: advisory recall on staged files

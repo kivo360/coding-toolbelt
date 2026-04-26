@@ -2,7 +2,9 @@ import { readIndex } from "../../lib/index-store";
 import { findMatchesHybrid } from "../../lib/hybrid-matcher";
 import { pingDaemon, daemonMatch } from "../../lib/daemon-client";
 import { appendMemory, makeRecord, recall, recentlySuggested } from "../../lib/suggest-memory";
+import { retainSuggesterCall } from "../../lib/hindsight-retain";
 import { c, print } from "../../lib/output";
+import { createHash } from "node:crypto";
 import type { SuggestMatch } from "../../types";
 import type { HybridResult } from "../../lib/hybrid-matcher";
 
@@ -136,6 +138,20 @@ export async function runSuggest(args: string[]): Promise<number> {
         matches.map((m) => ({ name: m.name, conf: m.confidence }))
       )
     ).catch(() => {});
+  }
+
+  // Phase 1 of the Hindsight integration: retain every suggest call to the
+  // project's bank. Default OFF (HINDSIGHT_SUGGESTER_ENABLED=1 to opt in).
+  // Fire-and-forget — adds zero latency, never throws.
+  if (!noMemory) {
+    retainSuggesterCall({
+      prompt,
+      promptHash: createHash("sha1").update(prompt).digest("hex"),
+      layer: result.stats.triggered,
+      matches: matches.map((m) => ({ name: m.name, confidence: m.confidence })),
+      kwConf: result.stats.kwBest,
+      embConf: result.stats.embBest,
+    });
   }
 
   return printResult(json, matches, explain, result.stats.triggered, result);

@@ -1,0 +1,74 @@
+{
+  "_doc": "Project-aware probe corpus (seed). Same prompt, expected results vary by project bank. Used to evaluate Tier 1 of the Hindsight integration (project-boost rule for Layer 0.5). Run with `bun src/eval/run-probes-project-aware.ts --bank kh-::<repo>`. The 'expected' map keys are bank IDs; values are skills that should rank in the top-3 for that bank. A skill listed under '__any__' is acceptable in any project bank.",
+  "_status": "seed — 6 probes, expand as Phase 2 lands and we have retain volume across multiple project banks",
+  "_added": "2026-04-26",
+
+  "probes": [
+    {
+      "id": "PA01",
+      "prompt": "fix the login flow",
+      "expected_per_bank": {
+        "kh-::stripe-payments": ["stripe-best-practices", "two-factor-authentication-best-practices"],
+        "kh-::coding-toolbelt": ["create-auth-skill", "two-factor-authentication-best-practices"],
+        "__any__": ["create-auth-skill", "security-review"]
+      },
+      "rationale": "What 'login flow' means depends entirely on which auth stack the project uses. Pure-keyword matching cannot disambiguate; project tag context can."
+    },
+    {
+      "id": "PA02",
+      "prompt": "the tests are flaky",
+      "expected_per_bank": {
+        "kh-::coding-toolbelt": ["vitest", "investigate"],
+        "kh-::python-backend": ["investigate"],
+        "kh-::e2e-suite": ["e2e-testing", "investigate"],
+        "__any__": ["investigate"]
+      },
+      "rationale": "Test framework varies by project. Bank tags on `file:vitest.config.*` vs `file:pytest.ini` vs `file:playwright.config.*` should disambiguate."
+    },
+    {
+      "id": "PA03",
+      "prompt": "tune the ranking",
+      "expected_per_bank": {
+        "kh-::coding-toolbelt": ["skill-developer"],
+        "kh-::search-platform": ["api-design"],
+        "__any__": []
+      },
+      "rationale": "'Tune the ranking' in the toolbelt repo is about the skill suggester's L0+L0.5 weights. In a search product it's about IR scoring. Project context should drive."
+    },
+    {
+      "id": "PA04",
+      "prompt": "set up CI",
+      "expected_per_bank": {
+        "kh-::coding-toolbelt": ["ship"],
+        "kh-::nextjs-app": ["ship", "shadcn"],
+        "__any__": ["ship"]
+      },
+      "rationale": "Generic across projects, but the bank should up-weight project-specific deployment skills (gstack-ship variants etc.) when applicable."
+    },
+    {
+      "id": "PA05",
+      "prompt": "optimize the embedding lookup",
+      "expected_per_bank": {
+        "kh-::coding-toolbelt": ["skill-developer"],
+        "kh-::rag-platform": ["api-design"],
+        "__any__": []
+      },
+      "rationale": "Embeddings here = skill suggester's L1. Embeddings elsewhere = vector retrieval. Bank's `node:` tags on chroma-store / fastembed should anchor toolbelt context."
+    },
+    {
+      "id": "PA06",
+      "prompt": "the hooks aren't firing",
+      "expected_per_bank": {
+        "kh-::coding-toolbelt": ["update-config"],
+        "__any__": ["investigate", "update-config"]
+      },
+      "rationale": "'Hooks' is overloaded — git hooks, Claude Code hooks, React hooks. Bank's `module:hooks` and node tags should disambiguate per project."
+    }
+  ],
+
+  "scoring": {
+    "method": "Per probe, run suggester for each bank in expected_per_bank. Hit if any of the expected skills for that bank appears in top-3 results. Aggregate hit rate per bank. Phase 2 of Hindsight integration is considered viable if mean hit rate >= 0.7 AND no bank's hit rate drops below 0.5 vs the global eval (no regression).",
+    "baseline": "Run with HINDSIGHT_SUGGESTER_ENABLED=0 to capture pre-Hindsight baseline. Same probes, same scoring. Compare in roll-out.",
+    "report_format": "JSON: {bank: {probe_id: {hit: bool, top: [...]}}}. Aggregated to mean hit rate per bank and per probe."
+  }
+}
