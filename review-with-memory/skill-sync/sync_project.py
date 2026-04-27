@@ -249,16 +249,16 @@ def gather_bank_signals(bank_id: str, sample_n: int) -> dict[str, Any]:
     """Pull a sample of recent memories and aggregate frequent tokens + tags."""
     try:
         from hindsight_client import Hindsight
-        client = Hindsight(
+        with Hindsight(
             base_url=os.environ.get("HINDSIGHT_BASE_URL", "http://localhost:8888"),
             timeout=15.0,
-        )
-        resp = client.recall(
-            bank_id=bank_id,
-            query="what topics, modules, and patterns has work in this project covered?",
-            budget="low",
-            max_tokens=4096,
-        )
+        ) as client:
+            resp = client.recall(
+                bank_id=bank_id,
+                query="what topics, modules, and patterns has work in this project covered?",
+                budget="low",
+                max_tokens=4096,
+            )
     except Exception as e:
         sys.stderr.write(f"[skill-sync] bank signals unavailable: {e!r}\n")
         return {"tokens": set(), "tag_counts": Counter(), "memory_count": 0, "available": False}

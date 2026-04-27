@@ -277,11 +277,11 @@ def main() -> None:
     if not args.no_delta:
         try:
             from hindsight_client import Hindsight
-            client = Hindsight(
+            with Hindsight(
                 base_url=os.environ.get("HINDSIGHT_BASE_URL", "http://localhost:8888"),
                 timeout=15.0,
-            )
-            delta = _try_recall_prev(client, bank)
+            ) as client:
+                delta = _try_recall_prev(client, bank)
         except Exception as e:
             if not args.quiet:
                 print(f"  prior-snapshot lookup failed (non-fatal): {e!r}",
@@ -300,28 +300,28 @@ def main() -> None:
 
     try:
         from hindsight_client import Hindsight
-        client = Hindsight(
+        with Hindsight(
             base_url=os.environ.get("HINDSIGHT_BASE_URL", "http://localhost:8888"),
             timeout=60.0,
-        )
-        try:
-            timestamp = dt.datetime.fromisoformat(meta["iso_date"])
-        except ValueError:
-            timestamp = dt.datetime.now(dt.timezone.utc)
-        client.retain(
-            bank_id=bank,
-            content=content,
-            context="graph-snapshot",
-            tags=tags,
-            timestamp=timestamp,
-            document_id=f"graph-snapshot-{sha}",
-            metadata={"sha": sha, "stats_json": json.dumps({
-                k: stats[k] for k in ("node_count", "file_count", "edge_count", "community_count")
-            })},
-        )
-        if not args.quiet:
-            print(f"  retained snapshot ({len(content)} chars, {len(tags)} tags)"
-                  + (f" — delta vs {delta['prev_sha']}" if delta and delta.get("prev_sha") else " — no prior snapshot"))
+        ) as client:
+            try:
+                timestamp = dt.datetime.fromisoformat(meta["iso_date"])
+            except ValueError:
+                timestamp = dt.datetime.now(dt.timezone.utc)
+            client.retain(
+                bank_id=bank,
+                content=content,
+                context="graph-snapshot",
+                tags=tags,
+                timestamp=timestamp,
+                document_id=f"graph-snapshot-{sha}",
+                metadata={"sha": sha, "stats_json": json.dumps({
+                    k: stats[k] for k in ("node_count", "file_count", "edge_count", "community_count")
+                })},
+            )
+            if not args.quiet:
+                print(f"  retained snapshot ({len(content)} chars, {len(tags)} tags)"
+                      + (f" — delta vs {delta['prev_sha']}" if delta and delta.get("prev_sha") else " — no prior snapshot"))
     except Exception as e:
         print(f"retain failed: {e!r}", file=sys.stderr)
         sys.exit(1)

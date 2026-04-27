@@ -171,18 +171,18 @@ def main() -> int:
 
     try:
         from hindsight_client import Hindsight
-        client = Hindsight(
+        with Hindsight(
             base_url=os.environ.get("HINDSIGHT_BASE_URL", "http://localhost:8888"),
             timeout=60.0,
-        )
-        client.retain(
-            bank_id=bank,
-            content=content,
-            context="test-failure" if failed else "test-pass",
-            tags=tags,
-            timestamp=started,
-            document_id=f"test-{nonce}",
-        )
+        ) as client:
+            client.retain(
+                bank_id=bank,
+                content=content,
+                context="test-failure" if failed else "test-pass",
+                tags=tags,
+                timestamp=started,
+                document_id=f"test-{nonce}",
+            )
         if not args.quiet:
             print(
                 f"[test-bridge] retained {'failure' if failed else 'pass'} "

@@ -195,59 +195,58 @@ def main() -> None:
 
     from hindsight_client import Hindsight
 
-    client = Hindsight(
+    with Hindsight(
         base_url=os.environ.get("HINDSIGHT_BASE_URL", "http://localhost:8888"),
         timeout=30.0,
-    )
+    ) as client:
+        existing = _existing_ids(client, bank)
+        trigger = None if args.no_refresh_trigger else {"refresh_after_consolidation": True}
 
-    existing = _existing_ids(client, bank)
-    trigger = None if args.no_refresh_trigger else {"refresh_after_consolidation": True}
+        created = updated = skipped = pruned = failed = 0
 
-    created = updated = skipped = pruned = failed = 0
+        for m in desired:
+            try:
+                if m["id"] in existing:
+                    client.update_mental_model(
+                        bank_id=bank,
+                        mental_model_id=m["id"],
+                        name=m["name"],
+                        source_query=m["source_query"],
+                        tags=m["tags"],
+                        trigger=trigger,
+                    )
+                    updated += 1
+                    print(f"  updated: {m['id']}")
+                else:
+                    client.create_mental_model(
+                        bank_id=bank,
+                        id=m["id"],
+                        name=m["name"],
+                        source_query=m["source_query"],
+                        tags=m["tags"],
+                        trigger=trigger,
+                    )
+                    created += 1
+                    print(f"  created: {m['id']}")
+            except Exception as e:
+                failed += 1
+                sys.stderr.write(f"  FAIL {m['id']}: {e!r}\n")
 
-    for m in desired:
-        try:
-            if m["id"] in existing:
-                client.update_mental_model(
-                    bank_id=bank,
-                    mental_model_id=m["id"],
-                    name=m["name"],
-                    source_query=m["source_query"],
-                    tags=m["tags"],
-                    trigger=trigger,
-                )
-                updated += 1
-                print(f"  updated: {m['id']}")
-            else:
-                client.create_mental_model(
-                    bank_id=bank,
-                    id=m["id"],
-                    name=m["name"],
-                    source_query=m["source_query"],
-                    tags=m["tags"],
-                    trigger=trigger,
-                )
-                created += 1
-                print(f"  created: {m['id']}")
-        except Exception as e:
-            failed += 1
-            sys.stderr.write(f"  FAIL {m['id']}: {e!r}\n")
+        if args.prune:
+            for mid in existing:
+                if (mid.startswith(ID_PREFIX_HUB) or mid.startswith(ID_PREFIX_BRIDGE)) and mid not in desired_ids:
+                    try:
+                        client.delete_mental_model(bank_id=bank, mental_model_id=mid)
+                        pruned += 1
+                        print(f"  pruned: {mid}")
+                    except Exception as e:
+                        failed += 1
+                        sys.stderr.write(f"  FAIL prune {mid}: {e!r}\n")
 
-    if args.prune:
-        for mid in existing:
-            if (mid.startswith(ID_PREFIX_HUB) or mid.startswith(ID_PREFIX_BRIDGE)) and mid not in desired_ids:
-                try:
-                    client.delete_mental_model(bank_id=bank, mental_model_id=mid)
-                    pruned += 1
-                    print(f"  pruned: {mid}")
-                except Exception as e:
-                    failed += 1
-                    sys.stderr.write(f"  FAIL prune {mid}: {e!r}\n")
-
-    print(
-        f"done — created={created} updated={updated} pruned={pruned} "
-        f"skipped={skipped} failed={failed}"
-    )
+        print(
+            f"done — created={created} updated={updated} pruned={pruned} "
+            f"skipped={skipped} failed={failed}"
+        )
     if failed:
         sys.exit(1)
 

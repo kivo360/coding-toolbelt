@@ -161,25 +161,24 @@ def main() -> None:
         return
 
     from hindsight_client import Hindsight
-    client = Hindsight(
+    with Hindsight(
         base_url=os.environ.get("HINDSIGHT_BASE_URL", "http://localhost:8888"),
         timeout=60.0,
-    )
-
-    for bank in banks:
-        result = _aggregate_one(client, bank, args.sample_size, args.max_tokens)
-        out_path = cache_dir / f"{_slug(bank)}.json"
-        out_path.write_text(json.dumps(result, indent=2))
-        if "error" in result:
-            print(f"  {bank}: ERROR {result['error']}", file=sys.stderr)
-            continue
-        print(
-            f"  {bank}: {result['memory_count']} memories, "
-            f"{len(result['top_tags'])} unique tags → {out_path}"
-        )
-        if args.print_summary and result["top_tags"]:
-            for t in result["top_tags"][:15]:
-                print(f"    {t['tag']}  ({t['count']}× w={t['weight']})")
+    ) as client:
+        for bank in banks:
+            result = _aggregate_one(client, bank, args.sample_size, args.max_tokens)
+            out_path = cache_dir / f"{_slug(bank)}.json"
+            out_path.write_text(json.dumps(result, indent=2))
+            if "error" in result:
+                print(f"  {bank}: ERROR {result['error']}", file=sys.stderr)
+                continue
+            print(
+                f"  {bank}: {result['memory_count']} memories, "
+                f"{len(result['top_tags'])} unique tags → {out_path}"
+            )
+            if args.print_summary and result["top_tags"]:
+                for t in result["top_tags"][:15]:
+                    print(f"    {t['tag']}  ({t['count']}× w={t['weight']})")
 
 
 if __name__ == "__main__":

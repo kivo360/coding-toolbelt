@@ -178,19 +178,18 @@ def main() -> None:
     print(f"{_dim('input files:')} {len(files)}  ({', '.join(files[:6])}{'…' if len(files) > 6 else ''})")
 
     from hindsight_client import Hindsight
-    client = Hindsight(
+    with Hindsight(
         base_url=os.environ.get("HINDSIGHT_BASE_URL", "http://localhost:8888"),
         timeout=30.0,
-    )
-
-    resp = client.recall(
-        bank_id=bank,
-        query=f"failures, fixes, reviews and risks involving: {', '.join(files[:10])}",
-        tags=sorted(input_file_tags),
-        tags_match="any_strict",
-        budget=args.budget,
-        max_tokens=args.max_tokens,
-    )
+    ) as client:
+        resp = client.recall(
+            bank_id=bank,
+            query=f"failures, fixes, reviews and risks involving: {', '.join(files[:10])}",
+            tags=sorted(input_file_tags),
+            tags_match="any_strict",
+            budget=args.budget,
+            max_tokens=args.max_tokens,
+        )
 
     results = getattr(resp, "results", None) or []
     print(f"{_dim('recalled memories:')} {len(results)}")

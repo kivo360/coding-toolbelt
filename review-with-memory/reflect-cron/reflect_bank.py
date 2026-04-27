@@ -101,56 +101,55 @@ def main() -> None:
 
     from hindsight_client import Hindsight
 
-    client = Hindsight(
+    with Hindsight(
         base_url=os.environ.get("HINDSIGHT_BASE_URL", "http://localhost:8888"),
         timeout=600.0,  # reflect is a long agentic loop
-    )
+    ) as client:
+        for bank in banks:
+            print(f"\n=== reflecting on {bank} ===")
+            try:
+                resp = client.reflect(
+                    bank_id=bank,
+                    query=query,
+                    budget=args.budget,
+                    max_tokens=args.max_tokens,
+                )
+            except Exception as e:
+                print(f"  reflect failed: {e!r}", file=sys.stderr)
+                continue
 
-    for bank in banks:
-        print(f"\n=== reflecting on {bank} ===")
-        try:
-            resp = client.reflect(
-                bank_id=bank,
-                query=query,
-                budget=args.budget,
-                max_tokens=args.max_tokens,
+            answer = (
+                getattr(resp, "answer", None)
+                or getattr(resp, "text", None)
+                or getattr(resp, "response", None)
+                or str(resp)
             )
-        except Exception as e:
-            print(f"  reflect failed: {e!r}", file=sys.stderr)
-            continue
+            if not isinstance(answer, str):
+                answer = str(answer)
+            print(answer[:600] + ("…" if len(answer) > 600 else ""))
 
-        answer = (
-            getattr(resp, "answer", None)
-            or getattr(resp, "text", None)
-            or getattr(resp, "response", None)
-            or str(resp)
-        )
-        if not isinstance(answer, str):
-            answer = str(answer)
-        print(answer[:600] + ("…" if len(answer) > 600 else ""))
+            if args.no_retain:
+                continue
+            if not answer.strip():
+                print("  empty answer — skipping retain", file=sys.stderr)
+                continue
 
-        if args.no_retain:
-            continue
-        if not answer.strip():
-            print("  empty answer — skipping retain", file=sys.stderr)
-            continue
-
-        try:
-            now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-            client.retain(
-                bank_id=bank,
-                content=f"Reflection ({window_label}, {now}):\n\n{answer}",
-                context=f"reflection-{window_label}",
-                tags=[
-                    "source:reflection",
-                    f"window:{window_label}",
-                    f"reflected-bank:{bank}",
-                ],
-                document_id=f"reflection-{window_label}-{now[:10]}",
-            )
-            print(f"  retained reflection ({len(answer)} chars)")
-        except Exception as e:
-            print(f"  retain of reflection failed: {e!r}", file=sys.stderr)
+            try:
+                now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+                client.retain(
+                    bank_id=bank,
+                    content=f"Reflection ({window_label}, {now}):\n\n{answer}",
+                    context=f"reflection-{window_label}",
+                    tags=[
+                        "source:reflection",
+                        f"window:{window_label}",
+                        f"reflected-bank:{bank}",
+                    ],
+                    document_id=f"reflection-{window_label}-{now[:10]}",
+                )
+                print(f"  retained reflection ({len(answer)} chars)")
+            except Exception as e:
+                print(f"  retain of reflection failed: {e!r}", file=sys.stderr)
 
 
 if __name__ == "__main__":

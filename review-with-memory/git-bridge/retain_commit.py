@@ -227,14 +227,14 @@ def main() -> None:
 
     from hindsight_client import Hindsight
 
-    client = Hindsight(
+    with Hindsight(
         base_url=os.environ.get("HINDSIGHT_BASE_URL", "http://localhost:8888"),
         timeout=180.0,
-    )
-    if len(items) == 1:
-        client.retain(bank_id=bank, **items[0])
-    else:
-        client.retain_batch(bank_id=bank, items=items)
+    ) as client:
+        if len(items) == 1:
+            client.retain(bank_id=bank, **items[0])
+        else:
+            client.retain_batch(bank_id=bank, items=items)
 
     if not args.quiet:
         print(f"\nretained {len(items)} commits to bank '{bank}'")

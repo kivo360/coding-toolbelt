@@ -116,16 +116,16 @@ def _patched_save_result(
         resolved_root = _resolve_repo_root(repo_root)
         bank = _bank_id(resolved_root)
         tags = _derive_tags(resolved_root, nodes, result_type)
-        client = Hindsight(
+        with Hindsight(
             base_url=os.environ.get("HINDSIGHT_BASE_URL", "http://localhost:8888"),
             timeout=15.0,
-        )
-        client.retain(
-            bank_id=bank,
-            content=f"Q: {question}\n\nA: {answer}",
-            context=f"crg-{result_type}",
-            tags=tags,
-        )
+        ) as client:
+            client.retain(
+                bank_id=bank,
+                content=f"Q: {question}\n\nA: {answer}",
+                context=f"crg-{result_type}",
+                tags=tags,
+            )
         if os.environ.get("CRG_HINDSIGHT_QUIET") != "1":
             sys.stderr.write(
                 f"[crg-hindsight] retained to bank '{bank}' "

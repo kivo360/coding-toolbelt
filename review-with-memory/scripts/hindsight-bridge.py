@@ -50,38 +50,39 @@ def cmd_health(args: argparse.Namespace) -> None:
 
 
 def _client(base_url: str):
+    """Returns an unentered Hindsight context manager — callers must `with` it."""
     from hindsight_client import Hindsight
 
     return Hindsight(base_url=base_url)
 
 
 def cmd_retain(args: argparse.Namespace) -> None:
-    client = _client(args.base_url)
     tags = [t for t in (args.tags.split(",") if args.tags else []) if t.strip()]
     metadata = json.loads(args.metadata) if args.metadata else None
-    res = client.retain(
-        bank_id=args.bank,
-        content=args.content,
-        context=args.context,
-        document_id=args.document_id,
-        metadata=metadata,
-        tags=tags or None,
-    )
+    with _client(args.base_url) as client:
+        res = client.retain(
+            bank_id=args.bank,
+            content=args.content,
+            context=args.context,
+            document_id=args.document_id,
+            metadata=metadata,
+            tags=tags or None,
+        )
     _emit({"retained": True, "response": _to_dict(res), "tags": tags})
 
 
 def cmd_recall(args: argparse.Namespace) -> None:
-    client = _client(args.base_url)
     tags = [t for t in (args.tags.split(",") if args.tags else []) if t.strip()]
-    res = client.recall(
-        bank_id=args.bank,
-        query=args.query,
-        tags=tags or None,
-        tags_match=args.tags_match,
-        budget=args.budget,
-        max_tokens=args.max_tokens,
-        types=args.types.split(",") if args.types else None,
-    )
+    with _client(args.base_url) as client:
+        res = client.recall(
+            bank_id=args.bank,
+            query=args.query,
+            tags=tags or None,
+            tags_match=args.tags_match,
+            budget=args.budget,
+            max_tokens=args.max_tokens,
+            types=args.types.split(",") if args.types else None,
+        )
     _emit({"response": _to_dict(res), "tags": tags, "tags_match": args.tags_match})
 
 
