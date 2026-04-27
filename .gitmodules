@@ -1,0 +1,3 @@
+[submodule "services/claude-memory-bridge"]
+	path = services/claude-memory-bridge
+	url = git@github.com:kivo360/claude-memory-bridge.git
